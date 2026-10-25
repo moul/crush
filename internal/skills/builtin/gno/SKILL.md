@@ -41,8 +41,26 @@ reference. The docs are also at https://docs.gno.land.
   Deploy to the path in `module`. `private = true` makes a package
   re-uploadable and unimportable (a user's home realm, say).
 - State is the realm's package-level variables; nothing else persists.
-  Keep growing data in an `avl.Tree` (`gno.land/p/nt/avl/v0`) rather than
-  a map. Other `gno.land/p/nt/<name>/v0` libraries: `ufmt` (formatting),
+  You are charged for objects, not for data, so the container is the
+  decision. Bytes per entry at n=1000 with string values, measured
+  2026-09-29 against `gnolang/gno` master from the storage diffs the
+  chain charges the deposit on:
+
+  | What you keep | Use | B/entry |
+  |---|---|--:|
+  | one value | a package-level `var` | n/a |
+  | keyed, order never read | `map[string]T` | 153 |
+  | positional, append-only, under ~4000 entries | `[]T` | 79 |
+  | keyed and ordered, only grows | `p/nt/bptree/v0` at fanout 128 | 592 |
+  | keyed and ordered, keys removed | `p/nt/bptree/v0` at fanout 32 | 671 |
+  | the ecosystem default, and the costliest | `p/nt/avl/v0` | 2029 |
+
+  A gno map is not a Go map: it iterates deterministically, in insertion
+  order, so it is chain-safe. What it costs you is key order, range
+  scans, `GetByIndex`, and pagination, which is O(n) per page. Reach for
+  a tree when a reader navigates the data, not by default: `avl` is
+  13.3x a map on storage and was dominated on every workload measured.
+- Other `gno.land/p/nt/<name>/v0` libraries: `ufmt` (formatting),
   `seqid` (ordered IDs), `ownable` (an owner), `grc20` and `grc721`
   (tokens), `mux` (routes in `Render`), `markdown/sanitize` (escaping),
   `uassert` and `urequire` (tests), `addrset`, `testutils`. Read one with
