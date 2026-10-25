@@ -20,7 +20,14 @@ func TestBuiltinGnoSkill(t *testing.T) {
 	require.NotNil(t, gno, "gno builtin skill not found")
 	require.Equal(t, BuiltinPrefix+"gno/SKILL.md", gno.SkillFilePath)
 	require.Contains(t, gno.Description, "gno.land")
-	for _, ref := range []string{"security-review.md", "toolchain.md"} {
+	refs := []string{
+		"security-review.md",
+		"toolchain.md",
+		"cost.md",
+		"testing.md",
+		"go-differences.md",
+	}
+	for _, ref := range refs {
 		location := BuiltinPrefix + "gno/references/" + ref
 		require.Contains(t, gno.Instructions, location, "SKILL.md must point at %s", ref)
 		content, err := BuiltinFS().ReadFile("builtin/" + strings.TrimPrefix(location, BuiltinPrefix))

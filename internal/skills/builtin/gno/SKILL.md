@@ -39,7 +39,20 @@ reference. The docs are also at https://docs.gno.land.
   ```
 
   Deploy to the path in `module`. `private = true` makes a package
-  re-uploadable and unimportable (a user's home realm, say).
+  re-uploadable in place by its original creator, and unimportable.
+  Measured 2026-09-22 against `gnolang/gno` master, across a redeploy:
+
+  | | |
+  |---|---|
+  | the code | replaced |
+  | coins at the realm address | kept |
+  | every package-level variable | **wiped**, back to its initializer |
+  | storage deposit | accumulates; nothing can free the old objects |
+
+  The price is that no other realm may import it, hold a reference to
+  its objects, or retain a value of a type it declares. The import is a
+  type error; the other two are a runtime panic `gno lint` cannot see.
+  Decide this before the first publish: neither direction converts.
 - State is the realm's package-level variables; nothing else persists.
   You are charged for objects, not for data, so the container is the
   decision. Bytes per entry at n=1000 with string values, measured
@@ -71,6 +84,23 @@ reference. The docs are also at https://docs.gno.land.
 - `func Render(path string) string` returns markdown that gnoweb shows at
   `/r/<ns>/<name>:<path>`. `path` and anything users stored are attacker
   input: pass them through `sanitize.InlineText` before writing them out.
+  Escape **once**: some markdown builders escape their arguments and some
+  do not, and wrapping twice is as wrong as not wrapping. A heading takes
+  sanitized text; a link sanitizes its own title, so sanitizing before
+  handing it over double-escapes, and so does wrapping a link in bold,
+  which the link escapes back out. Nest outward instead.
+- **A link is not a safe place to put caller text inside a table.** A
+  link's escaper deliberately leaves `|` alone, because a pipe means
+  nothing in a sentence, so caller text in a link inside a table row
+  opens a column; wrapping the title to fix it makes the backslashes
+  render. Make the link title yours and give the caller's text its own
+  cell.
+- **Never build a markdown table by concatenating pipes.** Four things
+  go wrong silently and nothing checks any of them: a cell containing
+  `|` opens a new column, a short row drops data instead of padding, an
+  empty table renders as a header with no body, and the separator row
+  has to match the header count. A public package path is immutable, so
+  a realm that ships a broken table renders it forever.
 - `panic` to reject a call; a transaction has no error return. Say what
   happened with `chain.Emit("Name", "key", value, ...)`.
 - Chain stdlibs (`gno doc <pkg>`): `chain` (Emit, PackageAddress, Coin,
@@ -110,6 +140,37 @@ reference. The docs are also at https://docs.gno.land.
 Before writing or reviewing a realm that holds assets, has an admin, or
 takes callbacks or interfaces, view
 `gnosh://skills/gno/references/security-review.md`.
+
+## Money
+
+- Coins are the chain's native ledger, real bearer value a realm holds
+  at its own address: use them when the thing *is* money. Use
+  `p/nt/grc20/v0` when you are **issuing** something (shares, points, a
+  wrapped asset) and never a hand-rolled `map[address]int64`: the
+  allowance semantics are easy to get wrong and nothing indexes it.
+- **Paying out is a pull, never a push.** A loop that sends to each
+  recipient fails entirely when one of them cannot be paid, which hands
+  a griefer a cheap denial of service. Credit a ledger and let each
+  payee withdraw, zeroing their balance before returning the amount.
+- Which way you round is not a detail: round in the protocol's favour
+  on the way in and the user's favour on the way out, or state plainly
+  which you chose. The difference is where every rounding exploit
+  lives.
+- `a*b/c` needs an intermediate wider than `int64`, and it should
+  refuse rather than return a wrong number when the result does not
+  fit.
+
+## Time and randomness
+
+- `runtime.ChainHeight()` is monotonic, agreed by consensus, and the
+  clock to schedule on. `time.Now()` in a realm is the block timestamp:
+  agreed too, but set by proposers and not something to build a cliff
+  out of at second resolution.
+- **Randomness does not exist here.** Every input a realm can see is
+  known to whoever submits the transaction, and the block proposer sees
+  more. A deterministic pseudo-entropy source is right for a cosmetic
+  shuffle and never for anything with money on it: when the outcome has
+  value, make participants commit first and reveal after.
 
 ## Test, lint, run
 
@@ -191,13 +252,19 @@ gnokey maketx send -to g1... -send 100ugnot \
 gnokey maketx run -gas-fee 1000000ugnot -gas-wanted 20000000 -chainid dev -remote 127.0.0.1:26657 devtest script.gno
 ```
 
-- The key name comes last. `-gas-wanted` caps the gas (20M for addpkg, 2M
-  for a call is usual); `-gas-fee` is the fee; `-args` passes one argument
-  per flag; `-send 100ugnot` attaches coins; `-max-deposit` caps the storage
-  deposit a deploy locks. A `run` script is `package main` with
-  `func main(cur realm)`.
+- The key name comes last. `-gas-wanted` caps the gas; `-gas-fee` is the
+  fee; `-args` passes one argument per flag; `-send 100ugnot` attaches
+  coins; `-max-deposit` caps the storage deposit a deploy locks. A `run`
+  script is `package main` with `func main(cur realm)`.
 - `-broadcast=false` prints the unsigned transaction (no password);
   `-simulate only` signs and simulates without broadcasting.
+- **Do not hand-write a gas number.** Over 464 successful mainnet
+  `add_package` transactions the fit is `gas ~= 3,800,000 + 1,285 *
+  bytes`, with gas per byte ranging 989 to 16,435: a deploy pays to be
+  parsed, type-checked and initialised before the first source byte is
+  charged for, and a flat 1800/byte under-funded 37% of that history.
+  Simulate, then size from what the chain reported. Where you cannot
+  simulate, 20M for an addpkg and 2M for a call is the usual fallback.
 - Success prints `OK!`, `GAS USED`, `HEIGHT`, `EVENTS` and `TX HASH`
   (`PKGPATH` too for addpkg); a call's return value comes first, as
   `(1 int)`. Verify a deploy with `vm/qfile`, `vm/qrender` and the gnoweb
@@ -250,7 +317,16 @@ one payment.
   and the cases behind it.
 - `gnosh://skills/gno/references/toolchain.md`: gno, gnokey and gnodev
   flags, query paths, the airgapped signing flow.
+- `gnosh://skills/gno/references/cost.md`: what a realm costs, the
+  container comparison in full, the refund asymmetry, deploy gas.
+- `gnosh://skills/gno/references/testing.md`: why a gno test passes
+  and proves nothing, and the shapes that fix it.
+- `gnosh://skills/gno/references/go-differences.md`: what compiles in
+  your head and fails in CI.
 - `$GNOROOT/docs/resources/`: `effective-gno.md`, `gno-interrealm-v2.md`,
   `gno-security-guide.md`, `gno-testing.md`, `gnodev.md`,
   `gnoland-networks.md`; `$GNOROOT/examples/gno.land/{p,r}` for working
   code.
+- https://github.com/moul/gno-contracts: the public benchmark set and
+  write-up the storage, gas and divergence numbers above come from,
+  with the harnesses that produced them.
