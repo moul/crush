@@ -42,24 +42,35 @@ reference. The docs are also at https://docs.gno.land.
   re-uploadable and unimportable (a user's home realm, say).
 - State is the realm's package-level variables; nothing else persists.
   You are charged for objects, not for data, so the container is the
-  decision. Bytes per entry at n=1000 with string values, measured
-  2026-09-29 against `gnolang/gno` master from the storage diffs the
-  chain charges the deposit on:
+  decision, and it has two prices: bytes per entry, the deposit, locked
+  once; and gas for ONE update from cold, which every `Call()` that
+  edits one record pays, every time. String values, from the published
+  gnobench run of 2026-10-26 against `gnolang/gno` `4f6104831`:
 
-  | What you keep | Use | B/entry |
-  |---|---|--:|
-  | one value | a package-level `var` | n/a |
-  | keyed, order never read | `map[string]T` | 153 |
-  | positional, append-only, under ~4000 entries | `[]T` | 79 |
-  | keyed and ordered, only grows | `p/nt/bptree/v0` at fanout 128 | 592 |
-  | keyed and ordered, keys removed | `p/nt/bptree/v0` at fanout 32 | 671 |
-  | the ecosystem default, and the costliest | `p/nt/avl/v0` | 2029 |
+  | What you keep | Use | B/entry | 1 update, n=100 -> 1000 |
+  |---|---|--:|--:|
+  | one value | a package-level `var` | n/a | n/a |
+  | keyed, order never read | `map[string]T` | 153 | 119k -> 1,034k |
+  | positional, append-only, under ~4000 entries | `[]T` | 79 | 64k -> 497k |
+  | keyed and ordered, only grows | `p/nt/bptree/v0` at fanout 128 | 592 | 311k -> 360k |
+  | keyed and ordered, keys removed | `p/nt/bptree/v0` at fanout 32 | 671 | 242k -> 303k |
+  | the ecosystem default, and the costliest to hold | `p/nt/avl/v0` | 2029 | 268k -> 364k |
 
-  A gno map is not a Go map: it iterates deterministically, in insertion
-  order, so it is chain-safe. What it costs you is key order, range
-  scans, `GetByIndex`, and pagination, which is O(n) per page. Reach for
-  a tree when a reader navigates the data, not by default: `avl` is
-  13.3x a map on storage and was dominated on every workload measured.
+  A map or a slice is ONE persisted object: editing one entry rewrites
+  all n, so an update is O(n). `avl` and `bptree` are per-entry, so an
+  update rewrites one path and is logarithmic. Decide on size AND on how
+  often one entry changes, never on bytes alone:
+  - Under ~250 entries a `map` is cheapest on both columns however hot
+    it runs: at n=150 its update is 169k, under every tree's floor. 50
+    entries edited every second is still a `map`.
+  - Bigger but cold, say 1000 entries edited once a year: still a `map`.
+    That is 1.03M gas a year to avoid locking 3.9x the deposit for good.
+  - Bigger and hot, edited on most calls: a `bptree`. At n=10,000 a map
+    update costs 10.2M gas against `avl`'s 464k, 22x, on every call.
+  - A gno map iterates deterministically, in insertion order, so it is
+    chain-safe. What it costs you is key order, range scans,
+    `GetByIndex`, and pagination, which is O(n) per page. When you do
+    need a tree, `bptree` beats `avl` on every workload measured.
 - Other `gno.land/p/nt/<name>/v0` libraries: `ufmt` (formatting),
   `seqid` (ordered IDs), `ownable` (an owner), `grc20` and `grc721`
   (tokens), `mux` (routes in `Render`), `markdown/sanitize` (escaping),
