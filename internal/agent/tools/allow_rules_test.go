@@ -14,6 +14,8 @@ import (
 // to a file or a line that does not parse is asked about.
 func TestAllowedCommand(t *testing.T) {
 	t.Parallel()
+	project := t.TempDir()
+	dirs := workDirs{start: project, project: project}
 
 	rules := commandRules([]string{"git diff *", "npm run *", "go test:*", "make", "find build -type f -delete", "watch -n1 ls"})
 	for _, command := range []string{
@@ -33,7 +35,7 @@ func TestAllowedCommand(t *testing.T) {
 		"watch -n1 ls",
 		"xargs go test < pkgs.txt",
 	} {
-		require.True(t, allowedCommand(command, workDirs{}, rules), command)
+		require.True(t, allowedCommand(command, dirs, rules), command)
 	}
 	for _, command := range []string{
 		"git diff && rm -rf ~",
@@ -56,7 +58,7 @@ func TestAllowedCommand(t *testing.T) {
 		"watch -n2 ls",
 		"git diff " + strings.Repeat("a", 10000),
 	} {
-		require.False(t, allowedCommand(command, workDirs{}, rules), command)
+		require.False(t, allowedCommand(command, dirs, rules), command)
 	}
 	require.False(t, allowedCommand("git diff", workDirs{}, nil), "no rules, no allowing")
 

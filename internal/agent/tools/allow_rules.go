@@ -19,9 +19,10 @@ func allowedCommand(command string, dirs workDirs, rules []shell.CommandRule) bo
 	if len(rules) == 0 {
 		return false
 	}
+	allowed := func(call *syntax.CallExpr) bool { return allowedCall(call, rules) }
 	return eachCallIn(command, dirs, func(call *syntax.CallExpr) bool {
-		return readOnlyCall(call) || allowedCall(call, rules)
-	})
+		return readOnlyCall(call) || allowed(call)
+	}) && readsProject(command, dirs, allowed)
 }
 
 // allowedCall reports whether one of rules lets call run (see

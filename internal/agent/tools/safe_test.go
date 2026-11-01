@@ -15,6 +15,8 @@ import (
 // runs another command, kill, and the forms of git that write.
 func TestReadOnlyCommand(t *testing.T) {
 	t.Parallel()
+	project := t.TempDir()
+	dirs := workDirs{start: project, project: project}
 
 	for _, command := range []string{
 		"ls", "ls -la", "pwd", "echo hello world", "ls *.go", "wc -l src/*.py", "echo $HOME", `echo "$HOME is home"`,
@@ -26,7 +28,7 @@ func TestReadOnlyCommand(t *testing.T) {
 		"git config --get user.name", "git config --list", "date", "date +%s", "hostname", "hostname -f",
 		"ps aux", "ps -ef", "env", "printenv PATH",
 	} {
-		require.Truef(t, readOnlyCommand(command, workDirs{}), "%q only reads", command)
+		require.Truef(t, readOnlyCommand(command, dirs), "%q only reads", command)
 	}
 
 	for _, command := range []string{
@@ -48,6 +50,6 @@ func TestReadOnlyCommand(t *testing.T) {
 		"ls &> out.txt", "ls >| out", "ls 2> err.txt", "rm -rf ~", "./script.sh", "/bin/ls", "touch x",
 		"", "ls '", "echo " + strings.Repeat("a", 10000),
 	} {
-		require.Falsef(t, readOnlyCommand(command, workDirs{}), "%q is not read-only", command)
+		require.Falsef(t, readOnlyCommand(command, dirs), "%q is not read-only", command)
 	}
 }

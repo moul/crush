@@ -471,6 +471,17 @@ Until you say yes:
   scripts). `option auto-lsp false` in your own `gnoshrc` stops the ones
   Gnosh finds.
 
+Trusted or not, the agent reads outside the folder only after asking:
+
+- A link in the folder that leads out of it, such as a `notes.txt` that points
+  at `~/.ssh/id_ed25519`, is read, listed or searched only after asking, and
+  the question names where it leads. A listing or search of the folder passes
+  such links by.
+- Read-only shell commands (`cat`, `head`, `grep`, `ls`, `git diff` and the
+  like) run without asking only when what they read lies in the folder, as in
+  Claude Code. `cat ~/.ssh/id_ed25519`, `grep -R`, which follows links, and a
+  `{a,b}` pattern, which the shell turns into words of its own, ask first.
+
 How to trust a folder, and what counts as one:
 
 - `gnosh run` never asks. In a folder not trusted it leaves the project's

@@ -57,7 +57,7 @@ func PermissionsReport(cfg *Config, o *RuntimeOverrides, workingDir string, skip
 	for _, dir := range o.AddedDirs {
 		fmt.Fprintf(&sb, "| %s | --add-dir or /add-dir |\n", markdownCell(dir))
 	}
-	sb.WriteString("\nRead-only commands (ls, cat, grep, git status and the like) run without asking, as in Claude Code.\n")
+	sb.WriteString("\nRead-only commands (ls, cat, grep, git status and the like) run without asking when what they read lies in the project, as in Claude Code.\n")
 	return sb.String()
 }
 
