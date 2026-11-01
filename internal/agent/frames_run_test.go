@@ -123,6 +123,16 @@ type fakeMem struct {
 	stacks           [][]string
 	clauses          map[string]string
 	estimateAfterPop int64
+	// fresh is the fresh frame (frameStacks.fresh) the tool would have
+	// told mem with each call, by call id.
+	fresh map[string]string
+}
+
+// freshAt is the fresh frame mem would have been told of with call id.
+func (m *fakeMem) freshAt(id string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.fresh[id]
 }
 
 type fakeMemInput struct {
@@ -133,8 +143,13 @@ type fakeMemInput struct {
 func (m *fakeMem) tool() fantasy.AgentTool {
 	return fantasy.NewAgentTool(gnovmtools.RunToolName, "mem", func(ctx context.Context, p fakeMemInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
 		session := tools.GetSessionFromContext(ctx)
+		stack, fresh := m.frames.stack(ctx, session), m.frames.fresh(ctx, session, call.ID)
 		m.mu.Lock()
-		m.stacks = append(m.stacks, m.frames.stack(ctx, session))
+		m.stacks = append(m.stacks, stack)
+		if m.fresh == nil {
+			m.fresh = map[string]string{}
+		}
+		m.fresh[call.ID] = fresh
 		m.mu.Unlock()
 		reply, ok := m.replies[p.Code]
 		if !ok {
@@ -333,6 +348,55 @@ const (
 // push's round is unchanged, the estimate of what went is spent by the
 // next usage report, the stack is derived the same from the rows, and the
 // next prompt tells the model where it stands.
+// With a call that pops, mem is told the frame the model entered in its
+// round before this one with nothing since (frameStacks.fresh), and its
+// Pop refuses it: a todo popped straight after its push was never done.
+// A round between, or the push in the same round, tells mem of none.
+func TestFrames_FreshFrame(t *testing.T) {
+	t.Parallel()
+
+	refused := memReply{text: "not popped: nothing came between your entering `g` \"fix it\" and this pop, so it is not done.", refused: true}
+	pushPop := "mem.Frame(\"g\").Push()\nmem.Pop(\"fixed\")"
+	replies := map[string]memReply{
+		pushG:   {text: inG, events: []gnovm.MemFrame{pushed("g", "fix it")}},
+		popG:    refused,
+		pushPop: {text: inG + "\ndone `g` \"fix it\" → fixed", events: []gnovm.MemFrame{pushed("g", "fix it"), poppedFrame("g", "fixed", 0)}},
+	}
+	t.Run("a pop in the round after the push", func(t *testing.T) {
+		t.Parallel()
+		s := newFramesScenario(t, replies, [][]fantasy.StreamPart{
+			calling(memCall("c1", pushG)),
+			calling(memCall("c2", popG)),
+			saying("stopped"),
+		}, 200_000)
+		s.run("fix the flaky test")
+		require.Equal(t, "g", s.mem.freshAt("c2"))
+		require.Empty(t, s.mem.freshAt("c1"), "before its push, no frame")
+	})
+	t.Run("a round between", func(t *testing.T) {
+		t.Parallel()
+		file := filepath.Join(t.TempDir(), "listen_test.go")
+		require.NoError(t, os.WriteFile(file, []byte("package net\n"), 0o644))
+		s := newFramesScenario(t, replies, [][]fantasy.StreamPart{
+			calling(memCall("c1", pushG)),
+			calling(viewCall("v1", file)),
+			calling(memCall("c2", popG)),
+			saying("stopped"),
+		}, 200_000)
+		s.run("fix the flaky test")
+		require.Empty(t, s.mem.freshAt("c2"))
+	})
+	t.Run("the push in the same round", func(t *testing.T) {
+		t.Parallel()
+		s := newFramesScenario(t, replies, [][]fantasy.StreamPart{
+			calling(memCall("c1", pushPop)),
+			saying("done"),
+		}, 200_000)
+		s.run("fix the flaky test")
+		require.Empty(t, s.mem.freshAt("c1"))
+	})
+}
+
 func TestFrames_PopCutsTheContext(t *testing.T) {
 	t.Parallel()
 

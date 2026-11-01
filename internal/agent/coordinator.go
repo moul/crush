@@ -1318,7 +1318,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	if c.gnovms != nil {
 		allTools = append(allTools,
 			wrap(gnovmtools.NewRunTool(c.gnovms, c.cfg.WorkingDir(), gnovmtools.OnMemGoals(c.memGoals), gnovmtools.BoundGoal(c.goals.boundName), gnovmtools.OnMemErased(c.memErased), gnovmtools.OnMemRules(c.memRules),
-				gnovmtools.MemStack(c.frames.stack), gnovmtools.OnMemFrames(c.frames.events), gnovmtools.Namer(c.nameFor), gnovmtools.SubAgent(isSubAgent))),
+				gnovmtools.MemStack(c.frames.stack), gnovmtools.MemFresh(c.frames.fresh), gnovmtools.OnMemFrames(c.frames.events), gnovmtools.Namer(c.nameFor), gnovmtools.SubAgent(isSubAgent))),
 			wrap(gnovmtools.NewNewTool(c.gnovms, c.cfg.WorkingDir())),
 			wrap(gnovmtools.NewListTool(c.gnovms, c.cfg.WorkingDir())),
 			wrap(gnovmtools.NewDropTool(c.gnovms, c.cfg.WorkingDir(), c.permissions)),

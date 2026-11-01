@@ -215,6 +215,44 @@ func (f *frameStacks) stack(ctx context.Context, sessionID string) []string {
 	return ids
 }
 
+// fresh is the frame on top of the session's stack when the model's round
+// that entered it was its last before the round making callID: nothing,
+// not even a prompt, came between them (poppedRows finds no row). mem
+// refuses to pop such a frame (RunRequest.Fresh), for the model never did
+// its todo: a long session copies the row of instant pops its cut context
+// shows. "" for any other frame, for one entered by this round itself, and
+// when the rows cannot be read.
+func (f *frameStacks) fresh(ctx context.Context, sessionID, callID string) string {
+	if f == nil || sessionID == "" || callID == "" {
+		return ""
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	rec := f.record(ctx, sessionID)
+	if len(rec.stack) == 0 {
+		return ""
+	}
+	top := rec.stack[len(rec.stack)-1]
+	if top.callID == "" || top.callID == callID {
+		return ""
+	}
+	if err := f.messages.FlushAll(ctx); err != nil {
+		return ""
+	}
+	msgs, err := f.messages.List(ctx, sessionID)
+	if err != nil {
+		return ""
+	}
+	round := func(id string) int {
+		return slices.IndexFunc(msgs, func(m message.Message) bool { return m.Role == message.Assistant && hasToolCall(m, id) })
+	}
+	push, now := round(top.callID), round(callID)
+	if push < 0 || now <= push || len(poppedRows(msgs, top.callID, callID)) > 0 {
+		return ""
+	}
+	return top.id
+}
+
 // top is a copy of the frame on top of the session's stack, and false
 // with an empty stack.
 func (f *frameStacks) top(ctx context.Context, sessionID string) (stackFrame, bool) {

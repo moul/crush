@@ -677,7 +677,10 @@ Gnosh's system prompt carries a short recipe, so the model needs no setup:
   moves on; a pop removes the todo's work from the model's context and keeps
   the result. A todo cannot be done while one under it is open, so a success
   condition is a todo ("go test ./... passes"), popped only after its check
-  has run, and a task it closes is judged before it counts as done.
+  has run, and a task it closes is judged before it counts as done. A todo
+  is never popped in the round right after the one that entered it, with
+  nothing in between: mem refuses, for it was not done (a todo that needs
+  nothing is entered and popped in one call).
 - **What should outlive a pop is a thought**: `mem.Think("…")` on the frame
   it stands in, found again by name (`mem.Thought`), by meaning
   (`mem.Recall`), or in the frame's outline, and dived into with

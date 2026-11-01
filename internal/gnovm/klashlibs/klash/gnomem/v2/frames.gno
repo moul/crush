@@ -638,7 +638,8 @@ func top(stack []string) string {
 // Pop leaves the present frame done with its result, and pops it: gnosh
 // then removes everything since the push from the model's context. result
 // is the model's own words, one string, kept whole up to mem's limit; it
-// is what stays.
+// is what stays. A frame entered in the model's round before this one,
+// with nothing in between (fresh), is not popped: its todo was never done.
 func (m *Mem) Pop(result string) {
 	stack := frames()
 	if len(stack) == 0 {
@@ -649,6 +650,9 @@ func (m *Mem) Pop(result string) {
 	if it.Status != "" {
 		m.popClosed(id, it)
 		return
+	}
+	if id == fresh() {
+		panic("not popped: nothing came between your entering " + ref(id, it.Title) + " and this pop, so it is not done. Do it, or check that it is done, then pop it.")
 	}
 	m.pop(id, it, result, false)
 }

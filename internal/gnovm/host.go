@@ -697,6 +697,10 @@ type RunRequest struct {
 	// frames it has pushed and not popped (FRAMES.md), which the agent
 	// derives from its own rows.
 	Frames []string `json:",omitempty"`
+	// Fresh is the frame on top of Frames when the agent's round that
+	// entered it was its last: nothing came between that round and this
+	// call's. mem refuses to pop it then, for the model never did it.
+	Fresh string `json:",omitempty"`
 	// Names are names made for the texts the call keeps without naming
 	// them (mem.Think(text), mem.Fact(text)), by text: the agent asks its
 	// small model before the call; the realm falls back to the words.

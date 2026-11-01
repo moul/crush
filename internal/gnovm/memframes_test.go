@@ -128,3 +128,41 @@ func TestHostFrames(t *testing.T) {
 	require.NoError(t, res.Err, res.Output)
 	require.Contains(t, res.Output, "thought `shared-port` kept on `fix-flaky-test`\nthought `shared-port-2` kept on `fix-flaky-test`\nthought `nobody-named-one` kept on `fix-flaky-test`\n")
 }
+
+// TestHostFramesFresh: a pop of the frame the request names Fresh (entered
+// in the agent's round before, with nothing since) is refused and keeps
+// nothing, a pop and a Next in one input included; the same pop with a
+// round between, or of a frame this input pushed itself, goes through.
+func TestHostFramesFresh(t *testing.T) {
+	t.Parallel()
+	h := newTestHost(t, t.TempDir())
+	ctx := context.Background()
+	run := func(stack []string, fresh, code string) *RunResult {
+		t.Helper()
+		res, err := h.Run(ctx, RunRequest{Project: "/proj", Session: "s1", Name: MemVM, Code: code, Frames: stack, Fresh: fresh})
+		require.NoError(t, err, code)
+		return res
+	}
+	res := run(nil, "", `f := mem.Todo("fix the flaky test"); f.Todo("find why it fails"); f.Todo("rerun the suite")`)
+	require.NoError(t, res.Err, res.Output)
+	res = run([]string{"fix-flaky-test"}, "", `mem.Next()`)
+	require.NoError(t, res.Err, res.Output)
+	stack := []string{"fix-flaky-test", "fix-flaky-test/find-why-fails"}
+
+	res = run(stack, "fix-flaky-test/find-why-fails", "mem.Pop(\"it races on the shared port\")\nmem.Next()")
+	require.ErrorContains(t, res.Err, "not popped: nothing came between your entering `fix-flaky-test/find-why-fails` \"find why it fails\" and this pop, so it is not done. Do it, or check that it is done, then pop it.")
+	require.Empty(t, res.Frames, "a refused input records no event")
+	show := run(stack, "", `println(mem.Show("fix-flaky-test/find-why-fails"))`)
+	require.Contains(t, show.Output, "[ ] `fix-flaky-test/find-why-fails`", "still open")
+
+	// Fresh names another frame than the top: the top pops.
+	res = run(stack, "fix-flaky-test", `mem.Pop("it races on the shared port")`)
+	require.NoError(t, res.Err, res.Output)
+	require.Equal(t, "pop", res.Frames[0].Kind)
+
+	// A frame this input pushed itself pops, whatever was fresh before.
+	stack = []string{"fix-flaky-test"}
+	res = run(stack, "fix-flaky-test", "mem.Next()\nmem.Pop(\"20 of 20 passed\")")
+	require.NoError(t, res.Err, res.Output)
+	require.Equal(t, []string{"push", "pop"}, []string{res.Frames[0].Kind, res.Frames[1].Kind})
+}

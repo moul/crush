@@ -29,6 +29,12 @@ func bound() string
 // with this input's pushes and pops so far.
 func frames() []string
 
+// fresh is the frame on top of this input's session's stack when the
+// session entered it in its round before this input's, with nothing in
+// between: a pop of it then would close a todo the model never did. ""
+// otherwise.
+func fresh() string
+
 // pushed tells gnosh this input entered frame id, titled purpose; with id
 // "", that a push found nothing to enter (Push() with nothing to enter).
 func pushed(id, purpose string)

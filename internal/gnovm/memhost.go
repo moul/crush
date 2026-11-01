@@ -88,6 +88,9 @@ type memRequest struct {
 	Goal string
 	// Frames is the session's stack of frames, bottom to top.
 	Frames []string
+	// Fresh is the frame on top of Frames that the session entered in the
+	// round before this one, with nothing since (RunRequest.Fresh).
+	Fresh string
 	// Names are the names gnosh made for the texts the input keeps without
 	// naming them, by text (RunRequest.Names).
 	Names map[string]string
@@ -200,7 +203,7 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 	}
 	mayWait := q.MayWait || q.Pipe != "" && !q.SubAgent && who == "agent" && endsWithBareNext(q.Code) && h.pendingPipe(q.Pipe)
 	mc := memContext{
-		caller: caller, bound: q.Goal, stack: q.Frames, names: q.Names, find: h.finder(ctx, x, j), holding: h.holding(j), limit: memLimit{ctx: ctx},
+		caller: caller, bound: q.Goal, stack: q.Frames, fresh: q.Fresh, names: q.Names, find: h.finder(ctx, x, j), holding: h.holding(j), limit: memLimit{ctx: ctx},
 		working: h.workingFor(), mayWait: mayWait, subAgent: q.SubAgent,
 	}
 	call, err := r.call(q.Code, mc)
@@ -890,7 +893,7 @@ func memRules(ops []memOp) []MemRule {
 // runMem runs a gnovm_run call against the project's mem.
 func (h *Host) runMem(ctx context.Context, req RunRequest) (*RunResult, error) {
 	start := time.Now()
-	res, err := h.mem(req.Project).call(ctx, memRequest{Code: req.Code, Session: req.Session, Req: req.Req, Goal: req.Goal, Frames: req.Frames, Names: req.Names, Pipe: req.WaitPipe, SubAgent: req.SubAgent, Run: true})
+	res, err := h.mem(req.Project).call(ctx, memRequest{Code: req.Code, Session: req.Session, Req: req.Req, Goal: req.Goal, Frames: req.Frames, Fresh: req.Fresh, Names: req.Names, Pipe: req.WaitPipe, SubAgent: req.SubAgent, Run: true})
 	out := &RunResult{VM: MemVM, Output: res.Output, Journaled: res.Seq > 0, Seq: res.Seq, Notes: res.Notes, Wall: time.Since(start), MemGoals: res.Goals, Erased: res.Erased, Frames: res.Frames, Waits: res.Waits}
 	if res.Seq > 0 {
 		out.Rules = memRules(res.Ops)

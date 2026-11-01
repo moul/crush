@@ -42,6 +42,10 @@ type memContext struct {
 	// stands.
 	stack  []string
 	frames *[]MemFrame
+	// fresh is the frame on top of stack that the session entered in its
+	// round before this one, with nothing since; fresh() answers it, and
+	// mem refuses to pop it.
+	fresh string
 	// nilPush is how many events the call had made when it last pushed
 	// nil; -1 for never. A pop that a nil push followed gets no hint.
 	nilPush *int
@@ -81,7 +85,7 @@ type memOp struct {
 var memNativeGas = gno.NativeGasInfo{Base: 1000, SlopeIdx: -1, SlopeKind: gno.SizeFlat}
 
 func init() {
-	for _, name := range []gno.Name{"caller", "today", "bound", "frames", "pushed", "popped", "nameMade", "record", "pending", "find", "holding", "working", "mayWait", "waitOn", "subAgent", "quote", "jsonString"} {
+	for _, name := range []gno.Name{"caller", "today", "bound", "frames", "fresh", "pushed", "popped", "nameMade", "record", "pending", "find", "holding", "working", "mayWait", "waitOn", "subAgent", "quote", "jsonString"} {
 		info := memNativeGas
 		gno.RegisterNativeGas(memLibPath, name, &info)
 	}
@@ -105,6 +109,10 @@ func memNative(name gno.Name) func(*gno.Machine) {
 		return func(m *gno.Machine) {
 			ctx := memCallContext(m, "frames")
 			memPush(m, stackAfter(ctx.stack, *ctx.frames))
+		}
+	case "fresh":
+		return func(m *gno.Machine) {
+			memPush(m, memCallContext(m, "fresh").fresh)
 		}
 	case "pushed":
 		return func(m *gno.Machine) {
