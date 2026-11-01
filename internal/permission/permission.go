@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/google/uuid"
 )
@@ -583,11 +584,15 @@ func (s *permissionService) dirs() []string {
 	return s.addedDirs
 }
 
-// inAddedDir reports whether path lies in one of the directories added
-// with --add-dir or /add-dir.
+// inAddedDir reports whether path, where a read goes with its symlinks
+// resolved, lies in one of the directories added with --add-dir, as
+// written or with their own symlinks resolved.
 func (s *permissionService) inAddedDir(path string) bool {
 	for _, dir := range s.dirs() {
-		if rel, err := filepath.Rel(dir, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+		if within(dir, path) {
+			return true
+		}
+		if real, ok := fsext.ResolvedPath(dir); ok && within(real, path) {
 			return true
 		}
 	}

@@ -281,10 +281,14 @@ func (dl *directoryLister) shouldIgnore(path string, ignorePatterns []string, is
 	return false
 }
 
-// ListDirectory lists files and directories in the specified path.
+// ListDirectory lists files and directories in the specified path. It
+// follows a symlink to a directory only when the link leads to somewhere
+// in the path listed: one that leads out of it (to ~/.ssh, say, from a
+// downloaded repository) is listed, and what it leads to is not.
 func ListDirectory(initialPath string, ignorePatterns []string, depth, limit int) ([]string, bool, error) {
 	found := csync.NewSlice[string]()
 	dl := NewDirectoryLister(initialPath)
+	root := realAbs(initialPath)
 
 	slog.Debug("Listing directory", "path", initialPath, "depth", depth, "limit", limit, "ignorePatterns", ignorePatterns)
 
@@ -318,6 +322,9 @@ func ListDirectory(initialPath string, ignorePatterns []string, depth, limit int
 		if limit > 0 && found.Len() >= limit {
 			return filepath.SkipAll
 		}
+		if path != initialPath && d.Type()&os.ModeSymlink != 0 && (root == "" || !HasPrefix(realAbs(path), root)) {
+			return filepath.SkipDir // a link out: not followed
+		}
 
 		return nil
 	})
@@ -327,4 +334,18 @@ func ListDirectory(initialPath string, ignorePatterns []string, depth, limit int
 
 	matches, truncated := truncate(slices.Collect(found.Seq()), limit)
 	return matches, truncated || errors.Is(err, filepath.SkipAll), nil
+}
+
+// realAbs is path made absolute with its symlinks resolved, "" when that
+// cannot be done (a link that leads nowhere).
+func realAbs(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	real, ok := ResolvedPath(abs)
+	if !ok {
+		return ""
+	}
+	return real
 }

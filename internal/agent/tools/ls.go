@@ -94,8 +94,10 @@ func NewLsTool(permissions permission.Service, workingDir string, lsConfig confi
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("error resolving search path: %v", err)), nil
 			}
 
-			relPath, err := filepath.Rel(absWorkingDir, absSearchPath)
-			if err != nil || strings.HasPrefix(relPath, "..") {
+			// Outside is where the listing goes: a link in the project
+			// that leads out of it is asked about as the directory it
+			// leads to.
+			if outside, realSearchPath := fsext.LeadsOut(absWorkingDir, absSearchPath); outside {
 				// Directory is outside working directory, request permission
 				sessionID := GetSessionFromContext(ctx)
 				if sessionID == "" {
@@ -106,11 +108,11 @@ func NewLsTool(permissions permission.Service, workingDir string, lsConfig confi
 					ctx,
 					permission.CreatePermissionRequest{
 						SessionID:   sessionID,
-						Path:        absSearchPath,
+						Path:        realSearchPath,
 						ToolCallID:  call.ID,
 						ToolName:    LSToolName,
 						Action:      "list",
-						Description: fmt.Sprintf("List directory outside working directory: %s", absSearchPath),
+						Description: outsideRequest("List directory", absWorkingDir, absSearchPath, realSearchPath),
 						Params:      LSPermissionsParams(params),
 					},
 				)

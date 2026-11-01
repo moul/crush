@@ -1,10 +1,11 @@
 package permission
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/charmbracelet/crush/internal/fsext"
 )
 
 // acceptEditsTools are the tools whose edits acceptEdits lets run without
@@ -46,12 +47,12 @@ func (s *permissionService) acceptsEdit(path string) bool {
 	if !filepath.IsAbs(path) || s.protectedFile(path) {
 		return false
 	}
-	real, _ := resolvedPath(filepath.Clean(path))
+	real, _ := fsext.ResolvedPath(filepath.Clean(path))
 	for _, root := range append([]string{s.workingDir}, s.dirs()...) {
 		if root == "" {
 			continue
 		}
-		if realRoot, ok := resolvedPath(root); ok && within(realRoot, real) {
+		if realRoot, ok := fsext.ResolvedPath(root); ok && within(realRoot, real) {
 			return true
 		}
 	}
@@ -67,7 +68,7 @@ func (s *permissionService) protectedFile(path string) bool {
 	if path == "" {
 		return false
 	}
-	real, ok := resolvedPath(filepath.Clean(path))
+	real, ok := fsext.ResolvedPath(filepath.Clean(path))
 	if !ok || protected(path) || protected(real) {
 		return true
 	}
@@ -86,38 +87,15 @@ func fileIn(path, dir string) bool {
 	if path == "" {
 		return true
 	}
-	real, ok := resolvedPath(filepath.Clean(path))
-	realDir, dirOK := resolvedPath(filepath.Clean(dir))
+	real, ok := fsext.ResolvedPath(filepath.Clean(path))
+	realDir, dirOK := fsext.ResolvedPath(filepath.Clean(dir))
 	return ok && dirOK && within(realDir, real)
-}
-
-// resolvedPath is path with every symlink resolved, the part of it that
-// does not exist yet (a file to be written, its new directories) taken
-// as it is under its nearest existing directory. ok is false for a path
-// that ends in a symlink that leads nowhere: writing it would make a file
-// wherever the link points.
-func resolvedPath(path string) (string, bool) {
-	var rest []string
-	for dir := path; ; dir = filepath.Dir(dir) {
-		real, err := filepath.EvalSymlinks(dir)
-		if err == nil {
-			return filepath.Join(append([]string{real}, rest...)...), true
-		}
-		if info, lerr := os.Lstat(dir); lerr == nil && info.Mode()&os.ModeSymlink != 0 {
-			return "", false
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", false
-		}
-		rest = append([]string{filepath.Base(dir)}, rest...)
-	}
 }
 
 // within reports whether path is root or lies in it.
 func within(root, path string) bool {
 	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
 
 // withinFold is within with the names compared in any case, and root's
@@ -127,7 +105,7 @@ func withinFold(root, path string) bool {
 	if within(strings.ToLower(root), path) {
 		return true
 	}
-	real, ok := resolvedPath(filepath.Clean(root))
+	real, ok := fsext.ResolvedPath(filepath.Clean(root))
 	return ok && within(strings.ToLower(real), path)
 }
 

@@ -596,6 +596,14 @@ func searchFilesWithRegex(pattern, rootPath string, opts grepOptions, limit int)
 			return nil
 		}
 
+		// A symlink met on the way is not searched, as ripgrep searches
+		// none it meets: one in the project could lead to ~/.ssh. (The
+		// path searched, when it is a link, was asked about as where it
+		// leads.)
+		if path != rootPath && info.Mode()&os.ModeSymlink != 0 {
+			return nil
+		}
+
 		// Skip hidden files (starting with a dot) to match ripgrep's default behavior
 		base := filepath.Base(path)
 		if base != "." && strings.HasPrefix(base, ".") {

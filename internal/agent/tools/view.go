@@ -23,6 +23,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/filepathext"
 	"github.com/charmbracelet/crush/internal/filetracker"
+	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/lsp"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/skills"
@@ -200,6 +201,16 @@ func NewViewTool(
 
 			// Handle relative paths
 			filePath := filepathext.SmartJoin(workingDir, params.FilePath)
+			// A screenshot's name has another space before AM or PM. The
+			// name is settled before the check below, so the file read is
+			// the file checked.
+			if _, err := os.Stat(filePath); os.IsNotExist(err) {
+				if other := otherScreenshotSpace(filePath); other != "" {
+					if _, otherErr := os.Stat(other); otherErr == nil {
+						filePath = other
+					}
+				}
+			}
 
 			// Check if file is outside working directory and request permission if needed
 			absWorkingDir, err := filepath.Abs(workingDir)
@@ -212,8 +223,9 @@ func NewViewTool(
 				return fantasy.ToolResponse{}, fmt.Errorf("error resolving file path: %w", err)
 			}
 
-			relPath, err := filepath.Rel(absWorkingDir, absFilePath)
-			isOutsideWorkDir := err != nil || strings.HasPrefix(relPath, "..")
+			// Outside is where the read goes: a link in the project that
+			// leads out of it is asked about as the file it leads to.
+			isOutsideWorkDir, realFilePath := fsext.LeadsOut(absWorkingDir, absFilePath)
 			isSkillFile := isInSkillsPath(absFilePath, skillsPaths)
 
 			sessionID := GetSessionFromContext(ctx)
@@ -227,11 +239,11 @@ func NewViewTool(
 					ctx,
 					permission.CreatePermissionRequest{
 						SessionID:   sessionID,
-						Path:        absFilePath,
+						Path:        realFilePath,
 						ToolCallID:  call.ID,
 						ToolName:    ViewToolName,
 						Action:      "read",
-						Description: fmt.Sprintf("Read file outside working directory: %s", absFilePath),
+						Description: outsideRequest("Read file", absWorkingDir, absFilePath, realFilePath),
 						Params:      ViewPermissionsParams{FilePath: params.FilePath, Offset: params.Offset, Limit: params.Limit},
 					},
 				)
@@ -245,14 +257,6 @@ func NewViewTool(
 
 			// Check if file exists
 			fileInfo, err := os.Stat(filePath)
-			if os.IsNotExist(err) {
-				// A screenshot's name has another space before AM or PM.
-				if other := otherScreenshotSpace(filePath); other != "" {
-					if otherInfo, otherErr := os.Stat(other); otherErr == nil {
-						filePath, absFilePath, fileInfo, err = other, otherScreenshotSpace(absFilePath), otherInfo, nil
-					}
-				}
-			}
 			if err != nil {
 				if os.IsNotExist(err) {
 					return fantasy.NewTextErrorResponse(missingFile(absFilePath, absWorkingDir)), nil
