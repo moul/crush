@@ -126,25 +126,34 @@ func (c *Client) BlockAt(ctx context.Context, height int64) (Block, error) {
 			o.Values = valuesOf(r.Data)
 		}
 		o.GasUsed, _ = strconv.ParseInt(outs[i].GasUsed, 10, 64)
-		for _, ev := range r.Events {
-			var e struct {
-				Type    string `json:"type"`
-				PkgPath string `json:"pkg_path"`
-				Attrs   []struct {
-					Key   string `json:"key"`
-					Value string `json:"value"`
-				} `json:"attrs"`
-			}
-			if json.Unmarshal(ev, &e) != nil || e.Type == "" || e.PkgPath == "" {
-				continue // storage deposits and other events of the node
-			}
-			out := Event{Type: e.Type, PkgPath: e.PkgPath}
-			for _, a := range e.Attrs {
-				out.Attrs = append(out.Attrs, Attr{a.Key, a.Value})
-			}
-			o.Events = append(o.Events, out)
-		}
+		o.Events = realmEvents(r.Events)
 		b.Txs = append(b.Txs, o)
 	}
 	return b, nil
+}
+
+// realmEvents reads the events realms emitted (chain.Emit) from a
+// transaction's results, skipping the node's own (storage deposits and the
+// like, which carry no realm type or package path).
+func realmEvents(raw []json.RawMessage) []Event {
+	var out []Event
+	for _, ev := range raw {
+		var e struct {
+			Type    string `json:"type"`
+			PkgPath string `json:"pkg_path"`
+			Attrs   []struct {
+				Key   string `json:"key"`
+				Value string `json:"value"`
+			} `json:"attrs"`
+		}
+		if json.Unmarshal(ev, &e) != nil || e.Type == "" || e.PkgPath == "" {
+			continue
+		}
+		x := Event{Type: e.Type, PkgPath: e.PkgPath}
+		for _, a := range e.Attrs {
+			x.Attrs = append(x.Attrs, Attr{a.Key, a.Value})
+		}
+		out = append(out, x)
+	}
+	return out
 }

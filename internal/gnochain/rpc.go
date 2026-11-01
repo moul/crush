@@ -64,9 +64,10 @@ func (r *rpc) call(ctx context.Context, method string, params map[string]any, ou
 
 // responseBase is how the node writes a response's common part in JSON.
 type responseBase struct {
-	Error json.RawMessage `json:"Error"`
-	Data  []byte          `json:"Data"`
-	Log   string          `json:"Log"`
+	Error  json.RawMessage   `json:"Error"`
+	Data   []byte            `json:"Data"`
+	Events []json.RawMessage `json:"Events"`
+	Log    string            `json:"Log"`
 }
 
 func (b responseBase) failed() bool {

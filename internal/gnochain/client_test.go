@@ -144,9 +144,10 @@ func (f fakeSigner) Sign(tx std.Tx, chainID string, accNum, seq uint64) (*std.Tx
 // session account under master when one is set), and calls that use
 // 12345 gas. It keeps the transaction broadcast.
 type fakeNode struct {
-	mu        sync.Mutex
-	broadcast []std.Tx
-	queries   []string
+	mu          sync.Mutex
+	broadcast   []std.Tx
+	queries     []string
+	failDeliver string // when set, broadcast_tx_commit delivers this as a failed log
 }
 
 func (n *fakeNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -205,10 +206,28 @@ func (n *fakeNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		n.mu.Lock()
 		n.broadcast = append(n.broadcast, tx)
 		n.mu.Unlock()
+		// One "<fn> ok" value and one realm event per message, in order,
+		// plus a node storage event to prove the client filters it out.
+		var vals []string
+		var evs []any
+		for _, m := range tx.Msgs {
+			mc := m.(MsgCall)
+			vals = append(vals, `("`+mc.Func+` ok" string)`)
+			evs = append(evs, map[string]any{"@type": "/tm.Event", "type": "mem", "pkg_path": mc.PkgPath, "attrs": []any{map[string]any{"key": "fn", "value": mc.Func}}})
+		}
+		evs = append(evs, map[string]any{"@type": "/tm.StorageDepositEvent", "bytes_delta": "7"})
+		data := "" // the node ends every m_call result with a blank line
+		for _, v := range vals {
+			data += v + "\n\n"
+		}
 		ok := map[string]any{"Error": nil, "Data": nil, "Log": ""}
+		deliver := map[string]any{"ResponseBase": map[string]any{"Error": nil, "Data": b64([]byte(data)), "Events": evs, "Log": ""}, "GasUsed": "12345"}
+		if n.failDeliver != "" {
+			deliver = map[string]any{"ResponseBase": map[string]any{"Error": map[string]any{"@type": "/vm.VMError"}, "Data": nil, "Log": n.failDeliver}, "GasUsed": "12345"}
+		}
 		result = map[string]any{
 			"check_tx":   map[string]any{"ResponseBase": ok, "GasUsed": "0"},
-			"deliver_tx": map[string]any{"ResponseBase": map[string]any{"Error": nil, "Data": b64([]byte(`("ok" string)`)), "Log": ""}, "GasUsed": "12345"},
+			"deliver_tx": deliver,
 			"hash":       b64([]byte{0xab, 0xcd}),
 			"height":     "43",
 		}
@@ -250,7 +269,7 @@ func TestClientAgainstANode(t *testing.T) {
 	require.Equal(t, key, caller)
 	res, err := signed.Call(ctx, "gno.land/r/demo/x", "Next", 100, "plan1")
 	require.NoError(t, err)
-	require.Equal(t, Result{Value: "ok", Height: 43, Hash: "abcd", Gas: 12345}, res)
+	require.Equal(t, Result{Value: "Next ok", Height: 43, Hash: "abcd", Gas: 12345}, res)
 	require.Len(t, node.broadcast, 1)
 	tx := node.broadcast[0]
 	call := tx.Msgs[0].(MsgCall)

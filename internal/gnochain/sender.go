@@ -166,10 +166,20 @@ func (r *rpc) broadcastTxSync(ctx context.Context, tx []byte) (broadcastResult, 
 	return res, err
 }
 
-// valuesOf splits a transaction's returned data into its calls' values:
-// the node writes them one after another, a blank line apart.
+// valuesOf splits a transaction's returned data into its calls' values,
+// one per call, in order. The chain ends every m_call result with a blank
+// line (vm/keeper.go: res += "\n\n") and concatenates them with nothing
+// between, so N calls' data ends with a trailing "\n\n"; trimming the
+// trailing newlines before splitting leaves exactly N parts, not N+1. A
+// void call's part is empty, and ParseValue reads it as "". (A value that
+// itself holds a blank line would break the split, a limit of the chain's
+// format, not met by mem's string results.)
 func valuesOf(data []byte) []string {
-	parts := strings.Split(string(data), "\n\n")
+	s := strings.TrimRight(string(data), "\n")
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, "\n\n")
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if v, err := ParseValue(p); err == nil {

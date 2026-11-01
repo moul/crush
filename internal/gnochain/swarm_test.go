@@ -69,7 +69,7 @@ func (n *swarmNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result = map[string]any{"block": map[string]any{"header": map[string]any{"time": "2026-11-01T19:00:00Z"}, "data": map[string]any{"txs": []string{tx, tx2}}}}
 	case "block_results":
 		ok := map[string]any{"ResponseBase": map[string]any{
-			"Error": nil, "Data": base64.StdEncoding.EncodeToString([]byte("(\"held\\tt/a\\t4\\ta\" string)\n\n(\"x\" string)")),
+			"Error": nil, "Data": base64.StdEncoding.EncodeToString([]byte("(\"held\\tt/a\\t4\\ta\" string)\n\n(\"x\" string)\n\n")),
 			"Events": []any{
 				map[string]any{"@type": "/tm.Event", "type": "mem", "pkg_path": "gno.land/r/x/mem", "attrs": []any{map[string]any{"key": "kind", "value": "held"}, map[string]any{"key": "todo", "value": "t/a"}}},
 				map[string]any{"@type": "/tm.StorageDepositEvent", "bytes_delta": "12"},
