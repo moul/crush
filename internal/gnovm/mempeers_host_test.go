@@ -37,6 +37,8 @@ func TestEndsWithBareNext(t *testing.T) {
 		"for i := 0; i < 2; i++ { mem.Next() }": false,
 		"f := func() { mem.Next() }\nf()":       false,
 		"mem.Next(\"x\")":                       false,
+		"mem.Next()\nmem.Next()":                false,
+		"if false { mem.Next() }\nmem.Next()":   false,
 		"func x() {}":                           false,
 		"":                                      false,
 	} {
@@ -151,7 +153,7 @@ func TestPeersHostWaitAndWake(t *testing.T) {
 	ctx := context.Background()
 	call := func(session string, stack []string, code, pipe string, sub bool) memResult {
 		t.Helper()
-		res, err := h.call(ctx, memRequest{Code: code, Session: session, Frames: stack, Pipe: pipe, SubAgent: sub})
+		res, err := h.call(ctx, memRequest{Code: code, Session: session, Frames: stack, Pipe: pipe, SubAgent: sub, Run: true})
 		require.NoError(t, err, res.Output)
 		return res
 	}
@@ -193,6 +195,14 @@ func TestPeersHostWaitAndWake(t *testing.T) {
 	makeWakePipe(t, h.dir, "03")
 	res = call("p3", nil, "mem.Next()\nprintln(\"after\")", "03", false)
 	require.Empty(t, res.Waits, "only a bare mem.Next() ending the input waits")
+	// p1 still holds the build, but its stack no longer has it (held by
+	// mem.Start, or left by a rewind): it is not working on it, and the
+	// upload after it is free.
+	require.NoError(t, h.writePeer(memPeer{Session: "p1"}))
+	makeWakePipe(t, h.dir, "05")
+	res = call("p4", nil, `mem.Next()`, "05", false)
+	require.Empty(t, res.Waits, "a holder without the todo on its stack is not waited for: %s", res.Output)
+	require.Equal(t, []string{"ship/upload"}, stackAfter(nil, res.Frames), res.Output)
 	makeWakePipe(t, h.dir, "04")
 	p1()
 	res = call("p3", nil, `mem.Next()`, "04", false)
@@ -200,7 +210,8 @@ func TestPeersHostWaitAndWake(t *testing.T) {
 }
 
 // A wait that would close a loop is refused, and Next answers as one that
-// may not wait.
+// may not wait; a wait its session gave up, its pipe no longer active,
+// closes no loop.
 func TestPeersHostLoop(t *testing.T) {
 	t.Parallel()
 	data := t.TempDir()
@@ -211,17 +222,53 @@ func TestPeersHostLoop(t *testing.T) {
 	require.NoError(t, err, res.Output)
 	defer takeTurn(t, data, "p1")()
 	defer takeTurn(t, data, "p2")()
-	res, err = h.call(ctx, memRequest{Code: `mem.Next()`, Session: "p1"})
+	res, err = h.call(ctx, memRequest{Code: `mem.Next()`, Session: "p1", Run: true})
 	require.NoError(t, err)
-	// p1's record says it waits for p2, as if it had waited for a todo of
-	// p2's elsewhere.
-	require.NoError(t, h.writePeer(memPeer{Session: "p1", Stack: []string{"release/bump-version"}, Waits: []MemWait{{Id: "elsewhere", Session: "p2"}}}))
+	// p1's record says it waits for p2, on a pipe that is active, as if it
+	// had waited for a todo of p2's elsewhere.
+	makeWakePipe(t, h.dir, "09")
+	require.True(t, h.activate("09"))
+	require.NoError(t, h.writePeer(memPeer{Session: "p1", Stack: []string{"release/bump-version"}, Waits: []MemWait{{Id: "elsewhere", Session: "p2"}}, Pipe: "09"}))
 	makeWakePipe(t, h.dir, "0a")
-	res, err = h.call(ctx, memRequest{Code: `mem.Next()`, Session: "p2", Pipe: "0a"})
+	res, err = h.call(ctx, memRequest{Code: `mem.Next()`, Session: "p2", Pipe: "0a", Run: true})
 	require.NoError(t, err)
 	require.Empty(t, res.Waits)
 	require.Contains(t, res.Output, "which waits for this session: that would wait forever")
 	require.Contains(t, res.Output, "no next todo")
+
+	// p1 gave its wait up (Esc): its pipe is gone, its record not yet
+	// written again. p2 waits for p1.
+	require.NoError(t, os.Remove(filepath.Join(h.dir, "waiters", "active", "09")))
+	makeWakePipe(t, h.dir, "0b")
+	res, err = h.call(ctx, memRequest{Code: `mem.Next()`, Session: "p2", Pipe: "0b", Run: true})
+	require.NoError(t, err)
+	require.Equal(t, []MemWait{{Id: "release/bump-version", Session: "p1"}}, res.Waits, res.Output)
+	rec, ok := h.readPeer("p2")
+	require.True(t, ok)
+	require.Equal(t, "0b", rec.Pipe, "a waiting Next's record names its pipe")
+}
+
+// gnosh's own reads for a session, the goal's at a turn's end, carry no
+// stack: they leave the session's peers record alone and ring nothing.
+func TestPeersGoalReadsKeepTheRecord(t *testing.T) {
+	t.Parallel()
+	data := t.TempDir()
+	h := newTestMemHost(t, filepath.Join(data, "proj", "mem"))
+	h.data = data
+	ctx := context.Background()
+	res, err := h.call(ctx, memRequest{Code: "r := mem.Todo(\"release\")\nr.Todo(\"bump the version\")", User: true})
+	require.NoError(t, err, res.Output)
+	defer takeTurn(t, data, "p1")()
+	res, err = h.call(ctx, memRequest{Code: `mem.Next()`, Session: "p1", Run: true})
+	require.NoError(t, err, res.Output)
+	pipe := makeWakePipe(t, h.dir, "0c")
+	require.True(t, h.activate("0c"))
+	res, err = h.call(ctx, memRequest{Code: `print(mem.JSON("release"))`, Session: "p1"})
+	require.NoError(t, err, res.Output)
+	rec, ok := h.readPeer("p1")
+	require.True(t, ok)
+	require.Equal(t, []string{"release/bump-version"}, rec.Stack)
+	require.Equal(t, 0, pipe.rung(), "a read with no stack rings nothing")
 }
 
 func TestRenamePeers(t *testing.T) {

@@ -9,6 +9,8 @@
 
 package gnomem
 
+import "strconv"
+
 // Peers: many sessions working one plan at once (PARALLEL.md). The pick
 // decides which todo a session steps into, and whether its Next waits for
 // the others. Every branch that differs from today's needs another session
@@ -65,7 +67,7 @@ func (m *Mem) pick(id, session string, enter bool, done func(string) bool, help 
 			return true
 		}
 		if enter {
-			if m.peersOnly(step, session, done) {
+			if m.peersOnly(step, session, done, help) {
 				return ordered
 			}
 			found = step
@@ -120,9 +122,11 @@ func (m *Mem) worked(id, session string, done func(string) bool) bool {
 }
 
 // peersOnly reports whether all that is left under todo id for session is
-// working sessions' work: some is being worked on, and nothing is free.
-func (m *Mem) peersOnly(id, session string, done func(string) bool) bool {
-	return m.worked(id, session, done) && m.pickFor(id, session, false, done) == ""
+// working sessions' work: some is being worked on, and nothing is free, not
+// counting, without help, a free todo under one a working session holds (so
+// a free todo beside id comes first).
+func (m *Mem) peersOnly(id, session string, done func(string) bool, help bool) bool {
+	return m.worked(id, session, done) && m.pick(id, session, false, done, help) == ""
 }
 
 // finished lists the todos under id that count as done once the working
@@ -213,17 +217,23 @@ func (m *Mem) workers(id, session string) string {
 }
 
 // doneByOthers is what the todos under id that another session did came to,
-// one line each, for the session that enters id; "" for none.
+// one line each, the first maxDoneBy of them, for the session that enters
+// id or is to pop it; "" for none.
 func (m *Mem) doneByOthers(id, session string) string {
 	var lines []string
+	more := 0
 	m.eachStep(id, func(step string, s *Todo) bool {
 		if s.Status == "done" && s.Did != "" && s.Did != session {
-			lines = append(lines, "its todo `"+step+"` was done by "+who(s.Did)+arrow(s.Result))
+			if len(lines) == maxDoneBy {
+				more++
+			} else {
+				lines = append(lines, "its todo `"+step+"` was done by "+who(s.Did)+arrow(s.Result))
+			}
 		}
 		return false
 	})
-	if len(lines) == 0 {
-		return ""
+	if more > 0 {
+		lines = append(lines, "and "+strconv.Itoa(more)+" more done by others: mem.Show("+quote(id)+")")
 	}
 	out := ""
 	for _, l := range lines {
@@ -231,3 +241,6 @@ func (m *Mem) doneByOthers(id, session string) string {
 	}
 	return out
 }
+
+// maxDoneBy is how many done-by lines doneByOthers says.
+const maxDoneBy = 5

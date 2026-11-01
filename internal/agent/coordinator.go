@@ -394,9 +394,6 @@ func NewCoordinator(ctx context.Context, opts CoordinatorOptions) (Coordinator, 
 // start of a session are not cut.
 const onDemandContextLimit = 40000
 
-// memBlock is how a main agent tells a session what the project's mem
-// holds, as it starts and after each summary; a sub-agent's sessions are
-// not told.
 // holdTurn holds a session's turn lock while it is busy, so peer sessions
 // working the same plan in mem see it working (gnovm's Lazy.HoldTurn).
 func (c *coordinator) holdTurn(ctx context.Context, sessionID string) func() {
@@ -406,6 +403,9 @@ func (c *coordinator) holdTurn(ctx context.Context, sessionID string) func() {
 	return c.gnovms.HoldTurn(ctx, sessionID)
 }
 
+// memBlock is how a main agent tells a session what the project's mem
+// holds, as it starts and after each summary; a sub-agent's sessions are
+// not told.
 func (c *coordinator) memBlock(isSubAgent bool) func(sessionID string) string {
 	if c.gnovms == nil || isSubAgent {
 		return nil

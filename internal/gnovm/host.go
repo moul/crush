@@ -1439,6 +1439,14 @@ func (h *Host) Kept(projectPath, name, req string) (bool, error) {
 	return false, nil
 }
 
+// KeptFrames is Kept for mem, with the frames the kept call pushed and
+// popped.
+func (h *Host) KeptFrames(projectPath, req string) ([]MemFrame, bool, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.mem(projectPath).keptFrames(req)
+}
+
 // Repair makes a broken VM usable again: it cuts the journal before the
 // first entry that cannot be read or replayed, keeps the old journal beside
 // it as a .bak, and starts a new generation, so other gnosh processes

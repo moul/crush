@@ -38,12 +38,19 @@ func (c *Client) runWaiting(ctx context.Context, req RunRequest) (*RunResult, er
 	dir := memDir(c.opts.Dir, req.Project)
 	var merged *RunResult
 	stack := req.Frames
+	base := req.Req
+	// line is the last "waited" line in merged's output: waits with nothing
+	// between them share one line, with their total.
+	line := struct {
+		at, end int
+		total   time.Duration
+	}{at: -1}
 	for n := 0; ; n++ {
 		pipe := newWakePipe(dir)
 		if pipe != nil {
 			req.WaitPipe = pipe.name
 		}
-		res, err := c.runMem(ctx, req, n > 0)
+		res, err := c.runMem(ctx, req)
 		if err == nil && res != nil && res.Err == nil && res.Journaled {
 			c.memChanged(req.Project)
 		}
@@ -53,7 +60,20 @@ func (c *Client) runWaiting(ctx context.Context, req RunRequest) (*RunResult, er
 				return res, err
 			}
 			// What came before stays: it was kept, and its frames must
-			// reach the agent.
+			// reach the agent; so must a re-run's, kept though its worker
+			// died before it replied.
+			var died *workerDied
+			if errors.As(err, &died) {
+				frames, kept, kerr := c.KeptFrames(context.WithoutCancel(ctx), req.Project, req.Req)
+				if kerr == nil && kept {
+					c.memChanged(req.Project)
+					merged.Frames = append(merged.Frames, frames...)
+					merged.Journaled = true
+					merged.Waits = nil
+					merged.Output += "(mem.Next() was kept, but its answer was lost with the VM worker: mem.Show() says where you stand)\n"
+					return merged, nil
+				}
+			}
 			why := ""
 			switch {
 			case err != nil:
@@ -74,30 +94,36 @@ func (c *Client) runWaiting(ctx context.Context, req RunRequest) (*RunResult, er
 		start := time.Now()
 		woke := c.sleep(ctx, pipe, res.Waits)
 		pipe.close()
+		d := time.Since(start)
+		if line.at >= 0 && line.end == len(merged.Output) {
+			// Nothing came between this wait and the one before.
+			d += line.total
+			merged.Output = merged.Output[:line.at]
+		}
+		line.at, line.total = len(merged.Output), d
 		if woke != nil {
-			merged.Output += "stopped waiting for " + waitsText(res.Waits) + " after " + roundWait(time.Since(start)) + ": " + woke.Error() + "\n"
+			merged.Output += "stopped waiting for " + waitsText(res.Waits) + " after " + roundWait(d) + ": " + woke.Error() + "\n"
 			merged.Waits = nil
 			return merged, nil
 		}
-		merged.Output += "waited " + roundWait(time.Since(start)) + " for " + waitsText(res.Waits) + "\n"
+		merged.Output += "waited " + roundWait(d) + " for " + waitsText(res.Waits) + "\n"
+		line.end = len(merged.Output)
 		if waitRerun != nil {
 			waitRerun()
 		}
-		req = RunRequest{Project: req.Project, Session: req.Session, Name: MemVM, Code: "mem.Next()", Req: fmt.Sprintf("%s/next-%d", req.Req, n+1), Goal: req.Goal, Frames: stack}
+		req = RunRequest{Project: req.Project, Session: req.Session, Name: MemVM, Code: "mem.Next()", Req: fmt.Sprintf("%s/next-%d", base, n+1), Goal: req.Goal, Frames: stack}
 	}
 }
 
 // runMem runs one mem call, called again at once while its catch-up spends
-// its slice. A re-run is never left behind by Esc: its cancel is sent and
-// its reply awaited (rerun), so a push it made is never lost.
-func (c *Client) runMem(ctx context.Context, req RunRequest, rerun bool) (*RunResult, error) {
-	run := c.run
-	if rerun {
-		run = c.runAwaited
-	}
-	res, err := run(ctx, req)
+// its slice. Its reply is awaited even when Esc ends ctx: the cancel is
+// sent and the reply, which then comes at once, is kept, so a pop or push
+// mem kept is never lost (a call still waiting for mem's lock is cancelled
+// before it holds it).
+func (c *Client) runMem(ctx context.Context, req RunRequest) (*RunResult, error) {
+	res, err := c.runAwaited(ctx, req)
 	for callAgain(ctx, err) {
-		res, err = run(ctx, req)
+		res, err = c.runAwaited(ctx, req)
 	}
 	return res, err
 }

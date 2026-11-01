@@ -51,11 +51,14 @@ func turnLockPath(dir, session string) string {
 
 // memPeer is a session's peers record, in mem's peers/ directory, written
 // under mem's lock by each of its calls that changes it: the stack the call
-// left, and what its Next waits for.
+// left, and what its Next waits for, on which pipe. The waits count only
+// while that pipe is active: a wait the client gave up (Esc, a failed
+// re-run) is over though no call has written the record since.
 type memPeer struct {
 	Session string    `json:"session"`
 	Stack   []string  `json:"stack,omitempty"`
 	Waits   []MemWait `json:"waits,omitempty"`
+	Pipe    string    `json:"pipe,omitempty"`
 }
 
 func (h *memHost) peerPath(session string) string {
@@ -130,9 +133,11 @@ func (h *memHost) workingFor() func(session, id string) bool {
 
 // waitLoop reports whether session, waiting for waits' holders, would close
 // a loop: a holder that, by its peers record, waits for session, or for one
-// that does, and so on. Only sessions in a turn count: a record a session
-// left as it ended waits for nothing. Read under mem's lock, where every
-// record is written, the check is exact.
+// that does, and so on. Only sessions in a turn count, and only waits whose
+// pipe is still active: a record a session left as it ended, or as it gave
+// up a wait, waits for nothing. Read under mem's lock, where every record
+// is written and every pipe activated, the check is exact but for a wait
+// given up in the moment since.
 func (h *memHost) waitLoop(session string, waits []MemWait) bool {
 	held := func(s string) bool {
 		return h.working != nil && h.working(s, "") || h.data != "" && turnHeld(h.data, s)
@@ -156,6 +161,9 @@ func (h *memHost) waitLoop(session string, waits []MemWait) bool {
 			continue
 		}
 		p, _ := h.readPeer(s)
+		if p.Pipe == "" || !h.activePipe(p.Pipe) {
+			continue
+		}
 		for _, w := range p.Waits {
 			queue = append(queue, w.Session)
 		}
@@ -205,8 +213,9 @@ func renamedUnder(renamed map[string]string, id string) string {
 }
 
 // endsWithBareNext reports whether code's last statement is mem.Next(),
-// alone: the only input whose Next may wait, so an input never keeps or
-// loses what came before its Next depending on what peers do.
+// alone, and the input's only mem.Next(): the only input whose Next may
+// wait, so an input never keeps or loses what came before its Next
+// depending on what peers do, and one wait answers one Next.
 func endsWithBareNext(code string) bool {
 	f, err := parser.ParseFile(token.NewFileSet(), "", "package p\nfunc _() {\n"+code+"\n}\n", 0)
 	if err != nil || len(f.Decls) != 1 {
@@ -221,9 +230,21 @@ func endsWithBareNext(code string) bool {
 		return false
 	}
 	call, ok := es.X.(*ast.CallExpr)
-	if !ok || len(call.Args) != 0 {
+	if !ok || len(call.Args) != 0 || !isMemNext(call) {
 		return false
 	}
+	nexts := 0
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok && isMemNext(c) {
+			nexts++
+		}
+		return true
+	})
+	return nexts == 1
+}
+
+// isMemNext reports whether call calls mem.Next.
+func isMemNext(call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok || sel.Sel.Name != "Next" {
 		return false
@@ -252,7 +273,7 @@ func validPipe(name string) bool {
 // that waits, refuses a loop, activates its pipe, or else answers as a Next
 // that may not wait; then it writes the session's peers record.
 func (h *memHost) afterCall(r *memRealm, q memRequest, ctx memContext, call memCall, res *memResult, committed bool) {
-	agent := q.Session != "" && !q.User
+	agent := q.Run && q.Session != "" && !q.User
 	stack := stackAfter(q.Frames, call.Frames)
 	var prev memPeer
 	had := false
@@ -283,7 +304,11 @@ func (h *memHost) afterCall(r *memRealm, q memRequest, ctx memContext, call memC
 	}
 	res.Waits = waits
 	if agent && (moved || len(waits) > 0 || len(prev.Waits) > 0) {
-		_ = h.writePeer(memPeer{Session: q.Session, Stack: stack, Waits: waits})
+		p := memPeer{Session: q.Session, Stack: stack, Waits: waits}
+		if len(waits) > 0 {
+			p.Pipe = q.Pipe
+		}
+		_ = h.writePeer(p)
 	}
 }
 

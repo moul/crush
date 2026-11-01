@@ -99,6 +99,11 @@ type memRequest struct {
 	Pipe     string
 	SubAgent bool
 	MayWait  bool
+	// Run is set for the agent's own gnovm_run call (Host.runMem), which
+	// carries the session's stack in Frames: only such a call keeps the
+	// session's peers record (afterCall). gnosh's own reads for a session,
+	// the goal's at a turn's end, leave the record alone.
+	Run bool
 }
 
 // memResult is what an input to mem did.
@@ -212,7 +217,11 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 	if er, ok := erasureOf(call.Ops); ok {
 		r.close()
 		x.close()
-		return h.erase(res, j, e, er)
+		res, err := h.erase(res, j, e, er)
+		if err == nil {
+			h.afterErasure(q, call, &res)
+		}
+		return res, err
 	}
 	if err := j.append(e); err != nil {
 		res.Ops = nil
@@ -221,16 +230,22 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 	res.Seq = e.Seq
 	// The entry is kept: the Nexts waiting on mem wake for it (afterCall),
 	// though they wait for the lock this call holds. If the store's or the
-	// index's write fails, the next call catches it up from the journal.
+	// index's write fails, the next call catches it up from the journal;
+	// the waiting Nexts are woken for it all the same, and the session's
+	// peers record takes its stack, but this call does not wait.
 	if err := r.commit(call, h.stamp(j)); err != nil {
+		call.Waits = nil
+		h.afterCall(r, q, mc, call, &res, true)
 		return res, err
 	}
 	if err := x.apply([][]memOp{call.Ops}, h.indexStamp(j)); err != nil {
+		call.Waits = nil
+		h.afterCall(r, q, mc, call, &res, true)
 		return res, err
 	}
 	h.writeStatus(r, j)
-	res.Goals = h.touched(r, caller, call.Ops)
-	if hint := nextHint(r, caller, q.Goal, q.Frames, call.Frames, call.NilPush); hint != "" {
+	res.Goals = h.touched(r, caller, call.Ops, mc.working)
+	if hint := nextHint(r, caller, q.Goal, q.Frames, call.Frames, call.NilPush, mc.working); hint != "" {
 		res.Output += hint + "\n"
 	}
 	h.afterCall(r, q, mc, call, &res, true)
@@ -239,14 +254,15 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 
 // nextHint is what a receipt ends with after a pop that no push followed
 // in the same input, a push of nil included: what mem.NextHint says to do
-// next, with the stack as it stands after the call (FRAMES.md). "" when the
-// call ended with no pop, or the hint cannot be read.
-func nextHint(r *memRealm, caller, bound string, stack []string, events []MemFrame, nilPush int) string {
+// next, with the stack as it stands after the call (FRAMES.md), and who is
+// working (PARALLEL.md). "" when the call ended with no pop, or the hint
+// cannot be read.
+func nextHint(r *memRealm, caller, bound string, stack []string, events []MemFrame, nilPush int, working func(session, id string) bool) string {
 	if len(events) == 0 || events[len(events)-1].Kind != "pop" || nilPush == len(events) {
 		return ""
 	}
 	last := events[len(events)-1]
-	call, err := r.call("print(mem.NextHint("+strconv.Quote(last.Id)+"))", memContext{caller: caller, bound: bound, stack: stackAfter(stack, events)})
+	call, err := r.call("print(mem.NextHint("+strconv.Quote(last.Id)+"))", memContext{caller: caller, bound: bound, stack: stackAfter(stack, events), working: working})
 	if err != nil {
 		slog.Warn("mem's next hint could not be read", "error", err)
 		return ""
@@ -256,7 +272,7 @@ func nextHint(r *memRealm, caller, bound string, stack []string, events []MemFra
 
 // touched is the goals ops changed, as caller sees them, read from the
 // store r now holds them; nil when there are none, or they cannot be read.
-func (h *memHost) touched(r *memRealm, caller string, ops []memOp) []MemGoal {
+func (h *memHost) touched(r *memRealm, caller string, ops []memOp, working func(session, id string) bool) []MemGoal {
 	var names []string
 	for _, op := range ops {
 		if g := goalPart(op.Name); opTarget(op) == "item" && op.Kind != "forget" && g != "" && !slices.Contains(names, g) {
@@ -270,7 +286,7 @@ func (h *memHost) touched(r *memRealm, caller string, ops []memOp) []MemGoal {
 	for i, n := range names {
 		args[i] = strconv.Quote(n)
 	}
-	call, err := r.call("print(mem.JSON("+strings.Join(args, ", ")+"))", memContext{caller: caller})
+	call, err := r.call("print(mem.JSON("+strings.Join(args, ", ")+"))", memContext{caller: caller, working: working})
 	var out struct {
 		Goals []MemGoal `json:"goals"`
 	}
@@ -367,6 +383,25 @@ func (h *memHost) erase(res memResult, j *journal, e *memEntry, er memErasure) (
 		err = nil
 	}
 	return res, err
+}
+
+// afterErasure is afterCall for an input that erased, once mem is written
+// again without what it erased (erase rang the waiting Nexts): the
+// session's peers record takes the stack the input left, under the names
+// the erasure gave, and a Next that decided to wait says it did not, for
+// an erasing input does not wait.
+func (h *memHost) afterErasure(q memRequest, call memCall, res *memResult) {
+	if len(call.Waits) > 0 {
+		res.Output += "mem.Next() did not wait, as this input also erased: call mem.Next() again\n"
+	}
+	if !q.Run || q.Session == "" || q.User {
+		return
+	}
+	stack := stackAfter(q.Frames, call.Frames)
+	for i, f := range stack {
+		stack[i] = renamedUnder(res.Renamed, f)
+	}
+	_ = h.writePeer(memPeer{Session: q.Session, Stack: stack})
 }
 
 // holding answers the holding native from mem's journal: the names whose
@@ -855,7 +890,7 @@ func memRules(ops []memOp) []MemRule {
 // runMem runs a gnovm_run call against the project's mem.
 func (h *Host) runMem(ctx context.Context, req RunRequest) (*RunResult, error) {
 	start := time.Now()
-	res, err := h.mem(req.Project).call(ctx, memRequest{Code: req.Code, Session: req.Session, Req: req.Req, Goal: req.Goal, Frames: req.Frames, Names: req.Names, Pipe: req.WaitPipe, SubAgent: req.SubAgent})
+	res, err := h.mem(req.Project).call(ctx, memRequest{Code: req.Code, Session: req.Session, Req: req.Req, Goal: req.Goal, Frames: req.Frames, Names: req.Names, Pipe: req.WaitPipe, SubAgent: req.SubAgent, Run: true})
 	out := &RunResult{VM: MemVM, Output: res.Output, Journaled: res.Seq > 0, Seq: res.Seq, Notes: res.Notes, Wall: time.Since(start), MemGoals: res.Goals, Erased: res.Erased, Frames: res.Frames, Waits: res.Waits}
 	if res.Seq > 0 {
 		out.Rules = memRules(res.Ops)
@@ -969,15 +1004,24 @@ func (h *Host) memInfo(project string) (VMInfo, bool) {
 
 // kept reports whether mem kept the call with request id req.
 func (h *memHost) kept(req string) (bool, error) {
+	_, found, err := h.keptFrames(req)
+	return found, err
+}
+
+// keptFrames is kept, with the frames the kept entry pushed and popped.
+func (h *memHost) keptFrames(req string) ([]MemFrame, bool, error) {
+	var frames []MemFrame
 	found := false
 	_, err := readEntriesOf(filepath.Join(h.dir, "journal.jsonl"), 0, 0, func(e memEntry, _ int64, _ string) error {
-		found = found || e.Req == req
+		if e.Req == req {
+			found, frames = true, e.Frames
+		}
 		return nil
 	})
 	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		return nil, false, nil
 	}
-	return found, err
+	return frames, found, err
 }
 
 // repair deletes mem's store, index and vectors, under its lock, so that

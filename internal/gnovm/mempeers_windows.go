@@ -21,3 +21,5 @@ func (h *memHost) ring() {}
 func (h *memHost) activate(name string) bool { return false }
 
 func (h *memHost) pendingPipe(name string) bool { return false }
+
+func (h *memHost) activePipe(name string) bool { return false }

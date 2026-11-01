@@ -201,10 +201,18 @@ type (
 		Name    string `json:"name"`
 		Action  string `json:"action"`
 	}
+	// keptReq asks whether a call was kept; Frames, for mem, asks for the
+	// frames it pushed and popped too, answered as a keptResp (a bare bool
+	// otherwise).
 	keptReq struct {
 		Project string `json:"project"`
 		Name    string `json:"name"`
 		Req     string `json:"req"`
+		Frames  bool   `json:"frames,omitempty"`
+	}
+	keptResp struct {
+		Kept   bool       `json:"kept"`
+		Frames []MemFrame `json:"frames,omitempty"`
 	}
 	repairReq struct {
 		Project string `json:"project"`

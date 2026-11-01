@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -64,6 +65,13 @@ func newWakePipe(dir string) *wakePipe {
 		return nil
 	}
 	p := &wakePipe{name: name, dir: dir, r: os.NewFile(uintptr(rfd), fresh), w: os.NewFile(uintptr(wfd), fresh), ready: make(chan struct{})}
+	// The read end must be in Go's poller, or reading it would spin on
+	// EAGAIN: a file that is not takes no deadline.
+	if err := p.r.SetReadDeadline(time.Time{}); err != nil {
+		p.close()
+		_ = os.Remove(fresh)
+		return nil
+	}
 	if err := os.Rename(fresh, filepath.Join(dir, "waiters", name)); err != nil {
 		p.close()
 		_ = os.Remove(fresh)

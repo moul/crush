@@ -91,6 +91,16 @@ func (h *memHost) activate(name string) bool {
 	return os.Rename(filepath.Join(h.dir, "waiters", name), to) == nil
 }
 
+// activePipe reports whether pipe name is active, in waiters/active/: its
+// Next waits on it.
+func (h *memHost) activePipe(name string) bool {
+	if !validPipe(name) {
+		return false
+	}
+	fi, err := os.Lstat(filepath.Join(h.dir, "waiters", "active", name))
+	return err == nil && fi.Mode()&os.ModeNamedPipe != 0
+}
+
 // pendingPipe reports whether pending pipe name is in waiters/.
 func (h *memHost) pendingPipe(name string) bool {
 	if !validPipe(name) {

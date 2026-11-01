@@ -1087,9 +1087,10 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// for a prompt queued behind this one starts from inside this one (the
 	// return at the end, or the handoff deferred below), while this hold
 	// stands, and shares it; released last, after that handoff, so there is
-	// no gap between them.
+	// no gap between them. Waiting for the lock (the session open in another
+	// gnosh process, busy there) ends with Esc, which cancels genCtx.
 	if a.holdTurn != nil {
-		defer a.holdTurn(ctx, call.SessionID)()
+		defer a.holdTurn(genCtx, call.SessionID)()
 	}
 	defer cancel()
 	// A turn that gave up must still run what was queued behind it. The

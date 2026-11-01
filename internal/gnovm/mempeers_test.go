@@ -63,7 +63,7 @@ func (p *peersMem) peer(session string) *peer { return &peer{p: p, session: sess
 // run is one input; wait lets its Next wait.
 func (s *peer) run(code string, wait bool) memResult {
 	s.p.t.Helper()
-	res, err := s.p.h.call(context.Background(), memRequest{Code: code, Session: s.session, Frames: s.stack, MayWait: wait})
+	res, err := s.p.h.call(context.Background(), memRequest{Code: code, Session: s.session, Frames: s.stack, MayWait: wait, Run: true})
 	require.NoError(s.p.t, err, res.Output)
 	s.stack = stackAfter(s.stack, res.Frames)
 	return res
@@ -196,15 +196,16 @@ func TestPeersPlannerAndFrames(t *testing.T) {
 
 	// p1 cannot pop the circle while the planner works under it; it waits.
 	p1.run(`mem.Pop("pi r squared")`, false)
-	res, err := p.h.call(context.Background(), memRequest{Code: `mem.Pop("circle passes")`, Session: "p1", Frames: p1.stack})
+	res, err := p.h.call(context.Background(), memRequest{Code: `mem.Pop("circle passes")`, Session: "p1", Frames: p1.stack, Run: true})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "works on now: mem.Next() waits for them")
+	require.Contains(t, err.Error(), "works on some of them now: mem.Next() steps into a free one, or waits for them")
 	res = p1.run(`mem.Next()`, true)
 	require.Len(t, res.Waits, 1, "the circle's holder waits to pop it: %s", res.Output)
 
 	pl.run(`mem.Pop("2 pi r")`, false)
 	res = p1.run(`mem.Next()`, true)
 	require.Contains(t, res.Output, "no next todo: `make-geom-pass-tests/circle` has no open todo: pop it")
+	require.Contains(t, res.Output, "its todo `make-geom-pass-tests/circle/circle-perimeter` was done by session planner → 2 pi r", "the session to pop it is told what the others found")
 	p1.run(`mem.Pop("circle passes")`, false)
 
 	// Only the planner's own pop is left: a root peer does not wait for it.
@@ -231,4 +232,59 @@ mem.Todo("find why")`, false)
 	res = s.run(`mem.Next()`, true)
 	require.Empty(t, res.Waits, "its own work is no peer's")
 	require.Contains(t, res.Output, "no next todo: `fix` has no open todo: pop it")
+}
+
+// In an ordered todo a planner stands in, a todo a root peer works on holds
+// up the one after it: the planner waits rather than take it.
+func TestPeersOrderedFrame(t *testing.T) {
+	t.Parallel()
+	p := newPeersMem(t)
+	p.peer("user").run(`r := mem.Todo("release")
+r.Todo("bump the version")
+r.Todo("tag it")`, false)
+	pl, p1 := p.peer("planner"), p.peer("p1")
+	p.working("planner", "p1")
+	pl.run(`mem.Frame("release").Push()`, false)
+	p1.run(`mem.Next()`, true)
+	require.Equal(t, "release/bump-version", p1.top())
+	res := pl.run(`mem.Next()`, true)
+	require.Equal(t, "release", pl.top(), "the tag waits for the bump: %s", res.Output)
+	require.Equal(t, []MemWait{{Id: "release/bump-version", Session: "p1"}}, res.Waits)
+	p1.run(`mem.Pop("now 2.0.0")`, false)
+	res = pl.run(`mem.Next()`, true)
+	require.Equal(t, "release/tag", pl.top(), res.Output)
+}
+
+// A wait counts a todo as finished from the bottom up: one a working session
+// holds counts once all under it does, so a root peer waits for a frame
+// another holds, whose own pop leaves its parent's work for it; when they
+// are done it gets that parent, told what they came to.
+func TestPeersFinishedUpward(t *testing.T) {
+	t.Parallel()
+	p := newPeersMem(t)
+	p.peer("user").run(`t := mem.Todo("ship").Parallel()
+x := t.Todo("pack").Parallel()
+y := x.Todo("box").Parallel()
+y.Todo("fold")
+y.Todo("tape")`, false)
+	p1, p2, p3 := p.peer("p1"), p.peer("p2"), p.peer("p3")
+	p.working("p1", "p2", "p3")
+	p1.run(`mem.Frame("ship/pack/box").Push()`, false)
+	p1.run(`mem.Next()`, true)
+	require.Equal(t, "ship/pack/box/fold", p1.top())
+	p2.run(`mem.Next()`, true)
+	require.Equal(t, "ship/pack/box/tape", p2.top(), "it helps under the box p1 holds")
+	res := p3.run(`mem.Next()`, true)
+	require.Empty(t, p3.stack, res.Output)
+	require.ElementsMatch(t, []MemWait{
+		{Id: "ship/pack/box/fold", Session: "p1"},
+		{Id: "ship/pack/box/tape", Session: "p2"},
+		{Id: "ship/pack/box", Session: "p1"},
+	}, res.Waits, "it waits for the box too, since the pack is its once they are done")
+	p2.run(`mem.Pop("taped")`, false)
+	p1.run(`mem.Pop("folded")`, false)
+	p1.run(`mem.Pop("box ready")`, false)
+	res = p3.run(`mem.Next()`, true)
+	require.Equal(t, "ship/pack", p3.top(), res.Output)
+	require.Contains(t, res.Output, "its todo `ship/pack/box` was done by session p1 → box ready")
 }

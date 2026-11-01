@@ -83,9 +83,11 @@ func (f *Frame) String() string {
 	return f.m.Show(f.Id)
 }
 
-// NextTodo is f's first todo, in the order of its Todos, whose State is
-// "open", or "doing" by this session; nil when f has none, and at the
-// unbound root, where a todo is entered by id or made and pushed.
+// NextTodo is the todo mem.Next() would step into from f: its first todo,
+// in the order of its Todos, whose State is "open", or "doing" by this
+// session; with other sessions working, a free todo under one of theirs
+// when none beside it is free (PARALLEL.md). nil when there is none, and
+// at the unbound root, where a todo is entered by id or made and pushed.
 func (f *Frame) NextTodo() *Frame {
 	if f == nil || f.m == nil {
 		return nil
@@ -425,6 +427,21 @@ func (m *Mem) push(id, thought string) {
 	if others := m.doneByOthers(id, me); others != "" {
 		print(others)
 	}
+	if w := m.workers(taskOf(id), me); w != "" {
+		verb := " also works"
+		if strings.Contains(w, " and ") {
+			verb = " also work"
+		}
+		println(w + verb + " on this plan now: keep to this todo's files, and take the next todo with mem.Next().")
+	}
+}
+
+// taskOf is the top-level todo id is under, or id itself.
+func taskOf(id string) string {
+	if i := strings.IndexByte(id, '/'); i >= 0 {
+		return id[:i]
+	}
+	return id
 }
 
 // Parallel says the todos under the todo may be done at once, in any order,
@@ -498,7 +515,7 @@ func (m *Mem) nothingNext() string {
 	if len(frames()) == 0 {
 		return "no next todo: `" + p + "` is this session's /goal and has no open todo: mem.Todo(\"…\") to plan more, or mem.Done when it holds."
 	}
-	return "no next todo: `" + p + "` has no open todo: pop it with its result."
+	return m.doneByOthers(p, caller()) + "no next todo: `" + p + "` has no open todo: pop it with its result."
 }
 
 // holdsOf says what holds back each open todo of frame id that NextTodo
@@ -662,7 +679,7 @@ func (m *Mem) pop(id string, it *Todo, result string, dropped bool) {
 	}
 	if it.OpenSteps > 0 {
 		if w := m.workers(id, caller()); w != "" {
-			panic(ref(id, it.Title) + " has open todos " + m.refs(m.openSteps(id)) + ", which " + w + " works on now: mem.Next() waits for them")
+			panic(ref(id, it.Title) + " has open todos " + m.refs(m.openSteps(id)) + ", and " + w + " works on some of them now: mem.Next() steps into a free one, or waits for them")
 		}
 		panic(ref(id, it.Title) + " has open todos " + m.refs(m.openSteps(id)) + ": push and pop them, or drop them, first")
 	}
@@ -691,6 +708,18 @@ func (m *Mem) NextHint(id string) string {
 		return ""
 	}
 	present := m.present()
+	// With other sessions working on the plan, only Next knows what is
+	// left for this one: a free todo, here or (at the root) elsewhere, or a
+	// wait for theirs; never a name to push, which another may take.
+	anchor := parent
+	if present == "" {
+		if n := m.newestOpen(); n != "" {
+			anchor = n
+		}
+	}
+	if w := m.workers(anchor, caller()); w != "" {
+		return "next: mem.Next(), which steps into a free todo, or waits for " + w
+	}
 	if nt := m.nextTodo(parent); nt != nil {
 		if parent == present || present == "" && m.nextAtRoot() == nt.Id {
 			return "next: " + ref(nt.Id, nt.Purpose) + ": mem.Next()"
@@ -701,7 +730,7 @@ func (m *Mem) NextHint(id string) string {
 	case p.OpenSteps > 0:
 		return "next: nothing in `" + parent + "` can be done now: " + m.holdsOf(parent)
 	case parent == present && onStack(frames(), parent):
-		return "next: pop `" + parent + "` with the evidence that it holds"
+		return m.doneByOthers(parent, caller()) + "next: pop `" + parent + "` with the evidence that it holds"
 	}
 	return "next: mem.Done(" + quote(parent) + ", \"…\") once it holds"
 }

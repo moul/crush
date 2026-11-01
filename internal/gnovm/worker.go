@@ -233,6 +233,14 @@ func handle(ctx context.Context, host *Host, f *frame) *frame {
 		if err := json.Unmarshal(f.Body, &req); err != nil {
 			return fail(err)
 		}
+		if req.Frames && req.Name == MemVM {
+			frames, kept, err := host.KeptFrames(req.Project, req.Req)
+			if err != nil {
+				return fail(err)
+			}
+			reply.Body = mustJSON(keptResp{Kept: kept, Frames: frames})
+			break
+		}
 		kept, err := host.Kept(req.Project, req.Name, req.Req)
 		if err != nil {
 			return fail(err)

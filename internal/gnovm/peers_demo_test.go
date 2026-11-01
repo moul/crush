@@ -468,6 +468,21 @@ func TestPeersDemonstration(t *testing.T) {
 				t.Logf("  %6dms %-7s %-4s %s %s", e.At-o.start.UnixMilli(), e.Session, e.Kind, e.Id, e.Waited)
 			}
 		}
+		// No peer ended while work it could do was left: each peer's end
+		// comes after the release itself began, its last todo to begin
+		// (with a planner, at the start).
+		var rootPush int64 = -1
+		for _, e := range o.events {
+			if e.Kind == "push" && e.Id == o.ids["ship the geometry release"] {
+				rootPush = e.At
+			}
+		}
+		require.NotEqual(t, int64(-1), rootPush, "%d peers: the release was never entered", n)
+		for _, e := range o.events {
+			if e.Kind == "done" {
+				require.GreaterOrEqual(t, e.At, rootPush, "%d peers: %s ended while work was left", n, e.Session)
+			}
+		}
 		require.Less(t, o.wall, bound, "%d peers", n)
 		if roles[0] == "root" {
 			// The run keeps to its rule's own schedule: no needless wait,
@@ -510,6 +525,7 @@ func TestPeersQuietHolder(t *testing.T) {
 		require.NoError(t, err)
 		done <- res
 	}()
+	waitingNow(t, dir, "/q")
 	time.Sleep(3 * time.Second)
 	require.Zero(t, reruns.Load(), "nothing changed: no re-run")
 	res, err = other.Run(ctx, RunRequest{Project: "/q", Session: "h", Name: MemVM, Code: `mem.Pop("bumped")`, Frames: []string{"release/bump"}})
@@ -558,7 +574,7 @@ func TestPeersKilledHolder(t *testing.T) {
 		require.NoError(t, err)
 		done <- res
 	}()
-	time.Sleep(time.Second)
+	waitingNow(t, dir, project)
 	require.Empty(t, done, "it waits for the working holder")
 	killed := time.Now()
 	require.NoError(t, cmd.Process.Signal(syscall.SIGKILL))

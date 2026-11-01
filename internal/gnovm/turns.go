@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/lock"
 )
@@ -58,8 +59,14 @@ func holdTurn(ctx context.Context, dir, session string) func() {
 	}
 	release, err := lock.TryFile(path)
 	if errors.Is(err, lock.ErrContended) {
-		slog.Info("Waiting for this session's turn lock, which another gnosh process may hold", "session_id", session)
+		// A peer's probe holds it for a moment; another gnosh process
+		// with the session open holds it while busy there.
+		slog.Debug("Waiting for this session's turn lock", "session_id", session)
+		start := time.Now()
 		release, err = lock.File(ctx, path)
+		if d := time.Since(start); err == nil && d > time.Second {
+			slog.Info("Waited for this session's turn lock, which another gnosh process held", "session_id", session, "waited", d.Round(time.Second))
+		}
 	}
 	if err != nil {
 		slog.Warn("Could not hold the session's turn lock; peers will not see it working", "session_id", session, "error", err)

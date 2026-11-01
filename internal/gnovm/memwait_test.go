@@ -13,6 +13,8 @@ package gnovm
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -91,10 +93,11 @@ func TestClientNextWaitsAndWakes(t *testing.T) {
 		res, err := c.Run(ctx, RunRequest{Project: "/proj", Session: "p2", Name: MemVM, Code: `mem.Next()`, Req: "call-1"})
 		got <- answer{res, err, time.Now()}
 	}()
+	waitingNow(t, dir, "/proj")
 	select {
 	case a := <-got:
 		t.Fatalf("Next did not wait: %v %+v", a.err, a.res)
-	case <-time.After(700 * time.Millisecond):
+	default:
 	}
 	popped := time.Now()
 	run("p1", []string{"release/bump-version"}, `mem.Pop("now 2.0.0")`)
@@ -124,7 +127,7 @@ func TestClientNextWaitsAndWakes(t *testing.T) {
 		res, err := c.Run(ctx, RunRequest{Project: "/proj2", Session: "p2", Name: MemVM, Code: `mem.Next()`, Req: "call-2"})
 		got <- answer{res, err, time.Now()}
 	}()
-	time.Sleep(500 * time.Millisecond)
+	waitingNow(t, dir, "/proj2")
 	ended := time.Now()
 	holder()
 	select {
@@ -154,7 +157,7 @@ func TestClientNextWaitsAndWakes(t *testing.T) {
 		res, err := c.Run(cctx, RunRequest{Project: "/proj3", Session: "p2", Name: MemVM, Code: "mem.Pop(\"reported\")\nmem.Next()", Frames: []string{"quarterly/report"}, Req: "call-4"})
 		got <- answer{res, err, time.Now()}
 	}()
-	time.Sleep(500 * time.Millisecond)
+	waitingNow(t, dir, "/proj3")
 	stopped := time.Now()
 	cancel()
 	select {
@@ -166,4 +169,16 @@ func TestClientNextWaitsAndWakes(t *testing.T) {
 	require.Less(t, a.at.Sub(stopped), 2*time.Second)
 	require.True(t, strings.Contains(a.res.Output, "stopped waiting for"), a.res.Output)
 	require.Equal(t, []MemFrame{{Kind: "pop", Id: "quarterly/report", Purpose: "report", Result: "reported", Session: "p2"}}, a.res.Frames)
+}
+
+// waitingNow waits until a Next waits on project's mem, its pipe active:
+// what a test does next then happens during the wait, however long the
+// waiter took to get there.
+func waitingNow(t *testing.T, dir, project string) {
+	t.Helper()
+	active := filepath.Join(memDir(dir, project), "waiters", "active")
+	require.Eventually(t, func() bool {
+		es, _ := os.ReadDir(active)
+		return len(es) > 0
+	}, 20*time.Second, 10*time.Millisecond, "no Next waits on %s's mem", project)
 }

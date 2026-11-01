@@ -150,14 +150,14 @@ func (c *Client) Deaths() []string {
 // mem input whose Next may wait for working sessions waits here
 // (memwait.go).
 func (c *Client) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	if req.Name != MemVM {
+		return c.run(ctx, req)
+	}
 	if mayWaitInput(req) {
 		return c.runWaiting(ctx, req)
 	}
-	res, err := c.run(ctx, req)
-	for req.Name == MemVM && callAgain(ctx, err) {
-		res, err = c.run(ctx, req)
-	}
-	if err == nil && res != nil && req.Name == MemVM && res.Journaled {
+	res, err := c.runMem(ctx, req)
+	if err == nil && res != nil && res.Journaled {
 		c.memChanged(req.Project)
 	}
 	return res, err
@@ -271,6 +271,30 @@ func (c *Client) Kept(ctx context.Context, project, name, req string) (bool, err
 	var kept bool
 	err = json.Unmarshal(body, &kept)
 	return kept, err
+}
+
+// KeptFrames is Kept for a mem call, with the frames the kept call pushed
+// and popped, which a caller that lost the reply must still apply to its
+// stack.
+func (c *Client) KeptFrames(ctx context.Context, project, req string) ([]MemFrame, bool, error) {
+	if h, err := c.inProcess(); h != nil || err != nil {
+		if err != nil {
+			return nil, false, err
+		}
+		return h.KeptFrames(project, req)
+	}
+	body, err := c.call(ctx, msgKept, keptReq{Project: project, Name: MemVM, Req: req, Frames: true})
+	if err != nil {
+		return nil, false, err
+	}
+	var r keptResp
+	if json.Unmarshal(body, &r) == nil {
+		return r.Frames, r.Kept, nil
+	}
+	// A worker from before frames were asked for answers a bare bool.
+	var kept bool
+	err = json.Unmarshal(body, &kept)
+	return nil, kept, err
 }
 
 // Repair repairs a broken VM; see Host.Repair.
@@ -650,7 +674,8 @@ func callAgain(ctx context.Context, err error) bool {
 
 // heard takes a heartbeat for its request: while the worker says the
 // request waits for mem's lock, and once more when it stops waiting, the
-// request's deadline starts again from now.
+// request's deadline starts again from now, and so does every other
+// pending request's, since those queue behind it in the worker.
 func (c *workerConn) heard(f *frame, now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -659,7 +684,9 @@ func (c *workerConn) heard(f *frame, now time.Time) {
 		return
 	}
 	if f.Waiting || p.waiting {
-		p.deadline = now.Add(requestDeadline)
+		for _, q := range c.pending {
+			q.deadline = now.Add(requestDeadline)
+		}
 	}
 	p.waiting = f.Waiting
 }

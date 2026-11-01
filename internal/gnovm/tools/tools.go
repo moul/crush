@@ -213,6 +213,9 @@ func NewRunTool(vms *gnovm.Lazy, project string, opts ...RunOption) fantasy.Agen
 			res, err := c.Run(ctx, req)
 			var died interface{ Error() string }
 			if err != nil && errors.As(err, &died) && strings.Contains(err.Error(), "worker ended before it replied") {
+				if p.Name == gnovm.MemVM {
+					return memOutcome(ctx, c, o, project, session, call.ID, err), nil
+				}
 				return fantasy.NewTextErrorResponse(unknownOutcome(ctx, c, project, session, p, call.ID, err)), nil
 			}
 			if err != nil {
@@ -228,14 +231,17 @@ func NewRunTool(vms *gnovm.Lazy, project string, opts ...RunOption) fantasy.Agen
 				frames = o.onFrames(context.WithoutCancel(ctx), session, call.ID, res.Frames)
 			}
 			text := renderRun(res, frames)
+			// So is what else mem kept: the todos shown, an erasure's
+			// copies, the rules.
+			kept := context.WithoutCancel(ctx)
 			if o.onMem != nil && len(res.MemGoals) > 0 {
-				o.onMem(ctx, session, res.MemGoals)
+				o.onMem(kept, session, res.MemGoals)
 			}
 			if o.onErased != nil && res.Erased != nil {
-				o.onErased(ctx, session, *res.Erased)
+				o.onErased(kept, session, *res.Erased)
 			}
 			if o.onRules != nil && len(res.Rules) > 0 {
-				o.onRules(ctx, session, res.Rules)
+				o.onRules(kept, session, res.Rules)
 			}
 			if len(res.Frames) > 0 {
 				return fantasy.WithResponseMetadata(fantasy.NewTextResponse(text), RunResponseMetadata{Frames: res.Frames}), nil
@@ -307,6 +313,30 @@ func unknownOutcome(ctx context.Context, c *gnovm.Client, project, session strin
 		return err.Error() + ". It was kept: the VM has its effects, but its output was lost."
 	}
 	return err.Error() + ". It was not kept: nothing from it is in the VM."
+}
+
+// memOutcome resolves a mem call whose worker died before replying: the
+// next worker is asked whether mem kept it, and if it did, the frames it
+// pushed and popped reach the session's stack all the same, as they would
+// have with its reply.
+func memOutcome(ctx context.Context, c *gnovm.Client, o runOptions, project, session, req string, err error) fantasy.ToolResponse {
+	frames, kept, kerr := c.KeptFrames(context.WithoutCancel(ctx), project, req)
+	switch {
+	case kerr != nil:
+		return fantasy.NewTextErrorResponse(err.Error() + "; asking whether it was kept failed too: " + kerr.Error())
+	case !kept:
+		return fantasy.NewTextErrorResponse(err.Error() + ". It was not kept: nothing from it is in mem.")
+	}
+	text := err.Error() + ". It was kept: mem has its effects, but its output was lost; mem.Show() says where you stand."
+	if len(frames) == 0 {
+		return fantasy.NewTextResponse(text)
+	}
+	if o.onFrames != nil {
+		if f := o.onFrames(context.WithoutCancel(ctx), session, req, frames); f != "" {
+			text += "\n" + f
+		}
+	}
+	return fantasy.WithResponseMetadata(fantasy.NewTextResponse(text), RunResponseMetadata{Frames: frames})
 }
 
 // refusalText is the text for a call that did not run.

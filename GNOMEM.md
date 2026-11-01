@@ -241,17 +241,22 @@ is working on. `mem.Todo("build the shapes").Parallel()` says the todos
 under it may be done at once, in any order, by any session; what must
 follow them, the check or the merge, is that todo's own work, done before it
 is popped. Every rule that differs from one session's needs another session
-working now, so one session sees exactly the `mem.Next()` above.
+working now, so one session working alone sees the `mem.Next()` above. The
+one addition it can see: entering a todo, or being told to pop it, lists
+what each of its todos that another session did came to (five at most).
+While others work, the hint after a pop says `mem.Next()` rather than a
+todo's name, since another session may take it first.
 
-Only a bare `mem.Next()` ending the call waits, and a sub-agent's never
-does. A todo held by a session that is not working now (its turn ended, or
-its process died) is passed over, as it is for one session, and a wait
-that would wait forever, a loop of sessions waiting for each other, is
-refused. The design and its reviews are in PARALLEL.md.
+Only a bare `mem.Next()` ending the call waits, when it is the call's only
+`mem.Next()`, and a sub-agent's never does; a sub-agent is a session of its
+own, so it may take a free todo under one its parent holds. A todo held by
+a session that is not working now (its turn ended, or its process died) is
+passed over, as it is for one session, and a wait that would wait forever,
+a loop of sessions waiting for each other, is refused.
 
 In the suite, real processes work one tree, twelve todos (three shapes of
 two parallel leaves each, then the build, then the notes, in order), with a
-sleep for each todo's work, 1 to 2.6 s for a leaf; every run ends with the
+sleep for each todo's work, 1 to 2.2 s for a leaf; every run ends with the
 same tree, checked from the journal:
 
 ```text
