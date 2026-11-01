@@ -128,6 +128,10 @@ type scenario struct {
 	files  map[string]string
 	mem    string
 	checks []string
+	// peers is how many sessions each fresh turn starts at once in the
+	// project, one gnosh process each (PARALLEL.md); GNOVM_SCENARIO_PEERS
+	// overrides it for a scenario that has a peers section; 0 is one.
+	peers int
 }
 
 type turnSpec struct {
@@ -285,6 +289,12 @@ func parseScenario(path string) (*scenario, error) {
 			sc.files[strings.TrimPrefix(name, "project/")] = body
 		case name == "mem":
 			sc.mem = strings.TrimSpace(sc.mem + "\n" + body)
+		case name == "peers":
+			n, err := strconv.Atoi(strings.TrimSpace(body))
+			if err != nil || n < 1 {
+				return nil, fmt.Errorf("peers: %q is not a count", strings.TrimSpace(body))
+			}
+			sc.peers = n
 		default:
 			return nil, fmt.Errorf("unknown section %q", name)
 		}
@@ -300,6 +310,9 @@ type scenarioRun struct {
 	vms                    map[string]string   // persistent VM name -> dump
 	checks                 []checkResult
 	took                   time.Duration
+	// peersWall is how long the peers' turn took, from the first start to
+	// the last end; 0 for a run without peers.
+	peersWall time.Duration
 }
 
 type turnResult struct {
@@ -369,7 +382,74 @@ func (r *scenarioRun) run(t *testing.T, sc *scenario, gnosh, home, reasoning str
 	// stream holds what that turn was told, a secret the user then had mem
 	// erase among it.
 	var outs, errs [][]byte
+	peers := sc.peers
+	if v := os.Getenv("GNOVM_SCENARIO_PEERS"); v != "" && sc.peers > 0 {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			t.Fatalf("GNOVM_SCENARIO_PEERS=%q is not a count", v)
+		}
+		peers = n
+	}
+	turnCap := 40 * time.Minute
+	if v := os.Getenv("GNOVM_SCENARIO_TURN_CAP"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			t.Fatalf("GNOVM_SCENARIO_TURN_CAP=%q: %v", v, err)
+		}
+		turnCap = d
+	}
 	for i, ts := range sc.turns {
+		if peers > 0 && ts.fresh {
+			// The peers: one gnosh process each, started together in the
+			// project, each with its own data directory (its sessions'
+			// database), all sharing the project's mem.
+			type peerOut struct {
+				stdout, stderr bytes.Buffer
+				err            error
+			}
+			outsP := make([]*peerOut, peers)
+			turnStart := time.Now()
+			var wg sync.WaitGroup
+			for k := range peers {
+				args := []string{"run", "--output-format", "stream-json", "-q", "-c", project, "-D", filepath.Join(r.dir, fmt.Sprintf("data-p%d", k+1))}
+				if model := os.Getenv("GNOVM_SCENARIO_MODEL"); model != "" {
+					args = append(args, "-m", model)
+				}
+				args = append(args, "-n", fmt.Sprintf("%s %s %d p%d", r.scenario, r.variant, i+1, k+1))
+				if appendPrompt != "" {
+					args = append(args, "--append-system-prompt-file", appendPrompt)
+				}
+				args = append(args, ts.prompt)
+				po := &peerOut{}
+				outsP[k] = po
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					ctx, cancel := context.WithTimeout(context.Background(), turnCap)
+					defer cancel()
+					cmd := exec.CommandContext(ctx, gnosh, args...)
+					cmd.Dir, cmd.Env = project, env
+					cmd.Stdout, cmd.Stderr = &po.stdout, &po.stderr
+					po.err = cmd.Run()
+				}()
+			}
+			wg.Wait()
+			r.peersWall = time.Since(turnStart)
+			for k, po := range outsP {
+				outs, errs = append(outs, po.stdout.Bytes()), append(errs, po.stderr.Bytes())
+				tr := parseStream(bytes.NewReader(po.stdout.Bytes()))
+				tr.prompt, tr.took = fmt.Sprintf("(peer %d of %d) %s", k+1, peers, ts.prompt), r.peersWall
+				if po.err != nil && tr.answer == "" {
+					tr.answer = fmt.Sprintf("(gnosh failed: %v; %s)", po.err, lastLine(po.stderr.String()))
+					tr.isError = true
+				}
+				r.turns = append(r.turns, tr)
+				t.Logf("turn %d peer %d: %d tool calls: %s", i+1, k+1, len(tr.calls), truncate(tr.answer, 200))
+			}
+			r.after = append(r.after, listFiles(project))
+			t.Logf("turn %d: %d peers, %s from the first start to the last end", i+1, peers, r.peersWall.Round(time.Second))
+			continue
+		}
 		args := []string{"run", "--output-format", "stream-json", "-q", "-c", project}
 		if model := os.Getenv("GNOVM_SCENARIO_MODEL"); model != "" {
 			args = append(args, "-m", model)
@@ -388,7 +468,7 @@ func (r *scenarioRun) run(t *testing.T, sc *scenario, gnosh, home, reasoning str
 		}
 		args = append(args, ts.prompt)
 		turnStart := time.Now()
-		ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), turnCap)
 		cmd := exec.CommandContext(ctx, gnosh, args...)
 		cmd.Dir, cmd.Env = project, env
 		var stdout, stderr bytes.Buffer
