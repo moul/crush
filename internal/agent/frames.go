@@ -807,18 +807,24 @@ func roughCount(n int64) string {
 // the first assistant message on. Nested pops remove the union. The list
 // that remains keeps a tool message followed by an assistant message, so
 // it is valid for every provider.
+//
+// The push's answer that stays says what came after it (workNote): without
+// that, a long session's context is a row of pushes each answered by its
+// pop at once, and a model copies the row, popping todos it never did.
 func cutPopped(msgs []fantasy.Message, ranges []poppedRange) []fantasy.Message {
 	if len(ranges) == 0 {
 		return msgs
 	}
 	skip := make([]bool, len(msgs))
+	type note struct{ callID, text string }
+	notes := map[int]note{}
 	cut := false
 	for _, r := range ranges {
 		end := indexOfCall(msgs, r.popCallID)
 		if end < 0 {
 			continue
 		}
-		from := -1
+		from, answer := -1, -1
 		if r.pushCallID != "" {
 			if push := indexOfCall(msgs, r.pushCallID); push >= 0 {
 				if push == end {
@@ -826,6 +832,7 @@ func cutPopped(msgs []fantasy.Message, ranges []poppedRange) []fantasy.Message {
 				}
 				from = push + 1
 				if from < len(msgs) && msgs[from].Role == fantasy.MessageRoleTool {
+					answer = from
 					from++
 				}
 			}
@@ -840,17 +847,78 @@ func cutPopped(msgs []fantasy.Message, ranges []poppedRange) []fantasy.Message {
 			skip[i] = true
 			cut = true
 		}
+		if answer >= 0 && from < end {
+			notes[answer] = note{r.pushCallID, workNote(msgs[from:end])}
+		}
 	}
 	if !cut {
 		return msgs
 	}
 	kept := make([]fantasy.Message, 0, len(msgs))
 	for i, m := range msgs {
-		if !skip[i] {
-			kept = append(kept, m)
+		if skip[i] {
+			continue
 		}
+		if n, ok := notes[i]; ok {
+			m = withNote(m, n.callID, n.text)
+		}
+		kept = append(kept, m)
 	}
 	return kept
+}
+
+// workNote is what a push's answer adds once its frame is popped: that the
+// work came there, and how much, by tool, so a pop never looks as if it
+// came straight after the push.
+func workNote(removed []fantasy.Message) string {
+	byTool := map[string]int{}
+	calls := 0
+	for _, m := range removed {
+		if m.Role != fantasy.MessageRoleAssistant {
+			continue
+		}
+		for _, part := range m.Content {
+			if call, ok := fantasy.AsMessagePart[fantasy.ToolCallPart](part); ok {
+				byTool[call.ToolName]++
+				calls++
+			}
+		}
+	}
+	if calls == 0 {
+		return fmt.Sprintf("[Then came %d messages of work in it, removed from your context when you popped it.]", len(removed))
+	}
+	names := make([]string, 0, len(byTool))
+	for name := range byTool {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	counts := make([]string, len(names))
+	for i, name := range names {
+		counts[i] = fmt.Sprintf("%s %d", name, byTool[name])
+	}
+	what := "1 tool call"
+	if calls > 1 {
+		what = fmt.Sprintf("%d tool calls", calls)
+	}
+	return fmt.Sprintf("[Then came the work in it, %s (%s), removed from your context when you popped it.]", what, strings.Join(counts, ", "))
+}
+
+// withNote is m, a tool message, with text added to its answer to callID;
+// m's own content is not changed.
+func withNote(m fantasy.Message, callID, text string) fantasy.Message {
+	content := slices.Clone(m.Content)
+	for j, part := range content {
+		rp, ok := fantasy.AsMessagePart[fantasy.ToolResultPart](part)
+		if !ok || rp.ToolCallID != callID {
+			continue
+		}
+		if out, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](rp.Output); ok {
+			rp.Output = fantasy.ToolResultOutputContentText{Text: out.Text + "\n" + text}
+			content[j] = rp
+		}
+	}
+	m.Content = content
+	return m
 }
 
 // indexOfCall is the index in msgs of the assistant message holding the

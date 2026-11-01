@@ -367,9 +367,13 @@ func TestFrames_PopCutsTheContext(t *testing.T) {
 	require.Contains(t, after, "assistant:c3")
 	require.Contains(t, after, "tool:c3")
 	validSequence(t, s.model.prompts[4])
-	// The prefix through the push's tool message is the same.
-	through := slices.Index(before, "tool:c2") + 1
-	require.Equal(t, contents(s.model.prompts[3][:through]), contents(s.model.prompts[4][:through]), "the prefix through the push's round is unchanged")
+	// The prefix through the push's call is the same, and the push's answer
+	// is only added to, at its end, with what came after it (cutPopped), so
+	// the cache holds as far as before but for those few tokens.
+	answer := slices.Index(before, "tool:c2")
+	require.Equal(t, contents(s.model.prompts[3][:answer]), contents(s.model.prompts[4][:answer]), "the prefix through the push's call is unchanged")
+	was, now := resultText(s.model.prompts[3][answer], "c2"), resultText(s.model.prompts[4][answer], "c2")
+	require.Equal(t, was+"\n[Then came the work in it, 1 tool call (view 1), removed from your context when you popped it.]", now)
 
 	// The rows are marked, and nothing else is.
 	by := s.poppedBy()

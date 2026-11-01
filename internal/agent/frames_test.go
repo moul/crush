@@ -55,6 +55,18 @@ func texts(msgs []fantasy.Message) []string {
 	return out
 }
 
+// resultText is the text of m's answer to callID.
+func resultText(m fantasy.Message, callID string) string {
+	for _, part := range m.Content {
+		if rp, ok := fantasy.AsMessagePart[fantasy.ToolResultPart](part); ok && rp.ToolCallID == callID {
+			if out, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentText](rp.Output); ok {
+				return out.Text
+			}
+		}
+	}
+	return ""
+}
+
 // validSequence checks what every provider needs of a list: an assistant
 // message with tool calls is followed by the tool message answering them,
 // and nothing else sits between.
@@ -105,6 +117,20 @@ func TestCutPopped(t *testing.T) {
 			"assistant:v2", "tool:v2", "assistant:c4", "tool:c4", "assistant:c5", "tool:c5", "assistant:working",
 		}, texts(got))
 		validSequence(t, got)
+	})
+	t.Run("the push's answer says the work came after it", func(t *testing.T) {
+		t.Parallel()
+		got := cutPopped(list, []poppedRange{{frame: "g/s1", pushCallID: "c2", popCallID: "c3"}})
+		require.Equal(t, "ok\n[Then came the work in it, 1 tool call (gnovm_run 1), removed from your context when you popped it.]", resultText(got[5], "c2"))
+		require.Equal(t, "ok", resultText(list[5], "c2"), "the list given is not changed")
+		nested := cutPopped(list, []poppedRange{
+			{frame: "g/s1", pushCallID: "c2", popCallID: "c3"},
+			{frame: "g/s2", pushCallID: "c3", popCallID: "c4"},
+			{frame: "g", pushCallID: "c1", popCallID: "c5"},
+		})
+		require.Equal(t, "ok\n[Then came the work in it, 5 tool calls (gnovm_run 5), removed from your context when you popped it.]", resultText(nested[3], "c1"))
+		adjacent := cutPopped(list, []poppedRange{{frame: "x", pushCallID: "c4", popCallID: "c5"}})
+		require.Equal(t, "ok", resultText(adjacent[14], "c4"), "nothing came between, so nothing is said")
 	})
 	t.Run("nested pops remove the union, the inner push and pop rounds too", func(t *testing.T) {
 		t.Parallel()
