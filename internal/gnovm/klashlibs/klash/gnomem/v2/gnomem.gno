@@ -182,6 +182,7 @@ func (m *Mem) Done(name string, result ...string) {
 	}
 	m.refuseInside(stack, name)
 	if name == top(stack) {
+		m.refuseFresh(name, it)
 		m.pop(name, it, strings.Join(result, " "), false)
 		return
 	}

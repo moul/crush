@@ -149,9 +149,10 @@ func MemStack(f func(ctx context.Context, sessionID string) []string) RunOption 
 	return func(o *runOptions) { o.stack = f }
 }
 
-// MemFresh has gnovm_run ask f, before a call to mem that pops, for the
-// frame on top of the session's stack when the round that entered it was
-// the session's last one before this call's (RunRequest.Fresh).
+// MemFresh has gnovm_run ask f, before a call to mem that pops (Pop, or
+// Done, which pops the present frame), for the frame on top of the
+// session's stack when the round that entered it was the session's last
+// one before this call's (RunRequest.Fresh).
 func MemFresh(f func(ctx context.Context, sessionID, callID string) string) RunOption {
 	return func(o *runOptions) { o.fresh = f }
 }
@@ -213,7 +214,7 @@ func NewRunTool(vms *gnovm.Lazy, project string, opts ...RunOption) fantasy.Agen
 			if o.stack != nil && p.Name == gnovm.MemVM {
 				req.Frames = o.stack(ctx, session)
 			}
-			if o.fresh != nil && p.Name == gnovm.MemVM && len(req.Frames) > 0 && strings.Contains(p.Code, "Pop(") {
+			if o.fresh != nil && p.Name == gnovm.MemVM && len(req.Frames) > 0 && (strings.Contains(p.Code, "Pop(") || strings.Contains(p.Code, "Done(")) {
 				req.Fresh = o.fresh(ctx, session, call.ID)
 			}
 			if o.namer != nil && p.Name == gnovm.MemVM {

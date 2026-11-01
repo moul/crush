@@ -651,10 +651,17 @@ func (m *Mem) Pop(result string) {
 		m.popClosed(id, it)
 		return
 	}
+	m.refuseFresh(id, it)
+	m.pop(id, it, result, false)
+}
+
+// refuseFresh refuses to leave frame id done when the session entered it
+// in its round before this one with nothing in between (fresh()): its todo
+// was never done. Pop and Done of the present frame both ask.
+func (m *Mem) refuseFresh(id string, it *Todo) {
 	if id == fresh() {
 		panic("not popped: nothing came between your entering " + ref(id, it.Title) + " and this pop, so it is not done. Do it, or check that it is done, then pop it.")
 	}
-	m.pop(id, it, result, false)
 }
 
 // popClosed pops a frame of the stack that mem already holds closed: one

@@ -155,6 +155,11 @@ func TestHostFramesFresh(t *testing.T) {
 	show := run(stack, "", `println(mem.Show("fix-flaky-test/find-why-fails"))`)
 	require.Contains(t, show.Output, "[ ] `fix-flaky-test/find-why-fails`", "still open")
 
+	// Done of the present frame is a pop too, and is refused the same way.
+	res = run(stack, "fix-flaky-test/find-why-fails", `mem.Done("fix-flaky-test/find-why-fails", "it races on the shared port")`)
+	require.ErrorContains(t, res.Err, "not popped: nothing came between your entering `fix-flaky-test/find-why-fails`")
+	require.Empty(t, res.Frames)
+
 	// Fresh names another frame than the top: the top pops.
 	res = run(stack, "fix-flaky-test", `mem.Pop("it races on the shared port")`)
 	require.NoError(t, res.Err, res.Output)
