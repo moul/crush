@@ -701,6 +701,11 @@ type RunRequest struct {
 	// them (mem.Think(text), mem.Fact(text)), by text: the agent asks its
 	// small model before the call; the realm falls back to the words.
 	Names map[string]string `json:",omitempty"`
+	// WaitPipe is the wake pipe the client made, pending in mem's
+	// waiters/, for an input whose Next may wait for working sessions;
+	// SubAgent marks a sub-agent's session, which never waits (PARALLEL.md).
+	WaitPipe string `json:",omitempty"`
+	SubAgent bool   `json:",omitempty"`
 }
 
 // RunResult is what a call did.
@@ -733,6 +738,10 @@ type RunResult struct {
 	// Frames are the frames a call to mem pushed and popped, in order
 	// (gnovm_run keeps them with its result and hands them to OnMemFrames).
 	Frames []MemFrame `json:",omitempty"`
+	// Waits is what the input's Next waits for: the client waits on its
+	// pipe until mem changes or a holder's turn ends, then runs mem.Next()
+	// again (memwait.go).
+	Waits []MemWait `json:",omitempty"`
 	// Err is the run's failure; nothing from the call was kept. (The wire
 	// carries it apart, keeping its kind; see wireRun.)
 	Err error `json:"-"`

@@ -185,7 +185,7 @@ type memCall struct {
 	NilPush int
 	// Waits is what the input's Next waits for, when it waits; nil
 	// otherwise (PARALLEL.md).
-	Waits []memWait
+	Waits []MemWait
 	// At is the call's time, which its Ops share.
 	At int64
 	// batch is what the call wrote, held back from the store until commit;

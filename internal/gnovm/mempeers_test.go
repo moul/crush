@@ -161,7 +161,7 @@ r.Todo("tag it")`, false)
 	require.Equal(t, "release/bump-version", p1.top())
 	res := p2.run(`mem.Next()`, true)
 	require.Empty(t, p2.stack, "the tag waits for the bump: %s", res.Output)
-	require.Equal(t, []memWait{{Id: "release/bump-version", Session: "p1"}}, res.Waits)
+	require.Equal(t, []MemWait{{Id: "release/bump-version", Session: "p1"}}, res.Waits)
 
 	p.working("p2")
 	res = p2.run(`mem.Next()`, true)

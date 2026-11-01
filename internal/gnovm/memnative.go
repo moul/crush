@@ -60,13 +60,7 @@ type memContext struct {
 	// wait for them; waits is where it says what it waits for.
 	working func(session, id string) bool
 	mayWait bool
-	waits   *[]memWait
-}
-
-// memWait is a todo a waiting Next waits for, and the session that holds it.
-type memWait struct {
-	Id      string `json:"id"`
-	Session string `json:"session"`
+	waits   *[]MemWait
 }
 
 // memOp is one change to a mem, as gnomem's do hands it to gnosh and the
@@ -176,7 +170,7 @@ func memNative(name gno.Name) func(*gno.Machine) {
 		return func(m *gno.Machine) {
 			ctx := memCallContext(m, "waitOn")
 			if ctx.waits != nil {
-				*ctx.waits = append(*ctx.waits, memWait{Id: memArg(m, 0), Session: memArg(m, 1)})
+				*ctx.waits = append(*ctx.waits, MemWait{Id: memArg(m, 0), Session: memArg(m, 1)})
 			}
 		}
 	case "record":

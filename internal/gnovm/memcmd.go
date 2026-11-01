@@ -393,6 +393,7 @@ func (h *memHost) undo(ctx context.Context, session string, seq int64) (string, 
 	if err := j.append(e); err != nil {
 		return "", err
 	}
+	h.ring()
 	// The entry is kept; a failed write below is caught up by the next call.
 	if err := r.commit(call, h.stamp(j)); err != nil {
 		return "", err

@@ -54,8 +54,11 @@ type memHost struct {
 	// embed is the embedding server mem.Find looks by meaning with; nil
 	// looks by words alone.
 	embed *memEmbedder
-	// working says whether a session is working on a todo now (PARALLEL.md
-	// §6); nil says none is, as with one session.
+	// data is gnosh's gnovm data directory, where sessions' turn locks are
+	// (mempeers.go); "" when there is none, as in some tests.
+	data string
+	// working, in tests, stands in for the turn locks and peers records
+	// (workingFor).
 	working func(session, id string) bool
 }
 
@@ -88,9 +91,14 @@ type memRequest struct {
 	// Names are the names gnosh made for the texts the input keeps without
 	// naming them, by text (RunRequest.Names).
 	Names map[string]string
-	// MayWait lets the input's Next wait for working sessions: its last
-	// statement is a bare mem.Next(), and its session is no sub-agent.
-	MayWait bool
+	// Pipe is the wake pipe the client made for this input, pending in
+	// mem's waiters/; SubAgent is set for a sub-agent's session, which never
+	// waits (PARALLEL.md). An input whose last statement is a bare
+	// mem.Next() may then wait for working sessions. MayWait, in tests, lets
+	// it wait with no pipe.
+	Pipe     string
+	SubAgent bool
+	MayWait  bool
 }
 
 // memResult is what an input to mem did.
@@ -112,7 +120,7 @@ type memResult struct {
 	// Instance is mem's instance id, which a mem made anew does not share.
 	Instance string
 	// Waits is what the input's Next waits for, when it waits.
-	Waits []memWait
+	Waits []MemWait
 }
 
 // MemGoal is a goal a mem call changed, as a session's task list shows it:
@@ -182,13 +190,19 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 	case q.Session != "":
 		who, caller = "agent", q.Session
 	}
-	call, err := r.call(q.Code, memContext{
+	mayWait := q.MayWait || q.Pipe != "" && !q.SubAgent && who == "agent" && endsWithBareNext(q.Code) && h.pendingPipe(q.Pipe)
+	mc := memContext{
 		caller: caller, bound: q.Goal, stack: q.Frames, names: q.Names, find: h.finder(ctx, x, j), holding: h.holding(j), limit: memLimit{ctx: ctx},
-		working: h.working, mayWait: q.MayWait,
-	})
-	res := memResult{Output: call.Output, Ops: call.Ops, Frames: call.Frames, Notes: notes, Instance: j.instance, Waits: call.Waits}
-	if err != nil || call.batch == nil {
+		working: h.workingFor(), mayWait: mayWait,
+	}
+	call, err := r.call(q.Code, mc)
+	res := memResult{Output: call.Output, Ops: call.Ops, Frames: call.Frames, Notes: notes, Instance: j.instance}
+	if err != nil {
 		return res, err
+	}
+	if call.batch == nil {
+		h.afterCall(r, q, mc, call, &res, false)
+		return res, nil
 	}
 	_, offset := time.Unix(call.At, 0).Zone()
 	e := &memEntry{Seq: j.seq + 1, Time: call.At, Offset: offset, Req: q.Req, Who: who, Session: q.Session, Code: q.Code, Ops: call.Ops, Frames: call.Frames}
@@ -202,8 +216,9 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 		return res, err
 	}
 	res.Seq = e.Seq
-	// The entry is kept. If the store's or the index's write fails, the
-	// next call catches it up from the journal.
+	// The entry is kept: the Nexts waiting on mem wake for it (afterCall),
+	// though they wait for the lock this call holds. If the store's or the
+	// index's write fails, the next call catches it up from the journal.
 	if err := r.commit(call, h.stamp(j)); err != nil {
 		return res, err
 	}
@@ -215,6 +230,7 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 	if hint := nextHint(r, caller, q.Goal, q.Frames, call.Frames, call.NilPush); hint != "" {
 		res.Output += hint + "\n"
 	}
+	h.afterCall(r, q, mc, call, &res, true)
 	return res, nil
 }
 
@@ -331,6 +347,8 @@ func (h *memHost) erase(res memResult, j *journal, e *memEntry, er memErasure) (
 	}
 	res.Seq = e.Seq
 	res.Notes = append(res.Notes, "mem's journal was written again without what was erased; its store and index are built afresh from it")
+	h.renamePeers(res.Renamed)
+	h.ring()
 	h.removeOtherGenerations(nj.generation)
 	r, j, _, err := h.open()
 	if err == nil {
@@ -834,8 +852,8 @@ func memRules(ops []memOp) []MemRule {
 // runMem runs a gnovm_run call against the project's mem.
 func (h *Host) runMem(ctx context.Context, req RunRequest) (*RunResult, error) {
 	start := time.Now()
-	res, err := h.mem(req.Project).call(ctx, memRequest{Code: req.Code, Session: req.Session, Req: req.Req, Goal: req.Goal, Frames: req.Frames, Names: req.Names})
-	out := &RunResult{VM: MemVM, Output: res.Output, Journaled: res.Seq > 0, Seq: res.Seq, Notes: res.Notes, Wall: time.Since(start), MemGoals: res.Goals, Erased: res.Erased, Frames: res.Frames}
+	res, err := h.mem(req.Project).call(ctx, memRequest{Code: req.Code, Session: req.Session, Req: req.Req, Goal: req.Goal, Frames: req.Frames, Names: req.Names, Pipe: req.WaitPipe, SubAgent: req.SubAgent})
+	out := &RunResult{VM: MemVM, Output: res.Output, Journaled: res.Seq > 0, Seq: res.Seq, Notes: res.Notes, Wall: time.Since(start), MemGoals: res.Goals, Erased: res.Erased, Frames: res.Frames, Waits: res.Waits}
 	if res.Seq > 0 {
 		out.Rules = memRules(res.Ops)
 	}
@@ -864,6 +882,7 @@ func (h *Host) mem(project string) *memHost {
 	if m == nil {
 		m = newMemHost(h.base, dir)
 		m.now = h.opts.Now
+		m.data = h.opts.Dir
 		m.embed = newMemEmbedder(h.opts.Embeddings)
 		h.mems[dir] = m
 	}
