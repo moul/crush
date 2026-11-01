@@ -146,8 +146,13 @@ func (c *Client) Deaths() []string {
 }
 
 // Run runs code in a VM; see Host.Run. A call to mem whose catch-up spent
-// its slice is made again at once, here, so the model never retries it.
+// its slice is made again at once, here, so the model never retries it; a
+// mem input whose Next may wait for working sessions waits here
+// (memwait.go).
 func (c *Client) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	if mayWaitInput(req) {
+		return c.runWaiting(ctx, req)
+	}
 	res, err := c.run(ctx, req)
 	for req.Name == MemVM && callAgain(ctx, err) {
 		res, err = c.run(ctx, req)
@@ -168,13 +173,30 @@ func (c *Client) memChanged(project string) {
 }
 
 func (c *Client) run(ctx context.Context, req RunRequest) (*RunResult, error) {
+	return c.runVia(ctx, req, false)
+}
+
+// runAwaited is run whose reply is awaited even when ctx ends: the cancel
+// is sent, and the reply, which then comes at once, is kept, so a mem call
+// that committed before the cancel reached it is never lost.
+func (c *Client) runAwaited(ctx context.Context, req RunRequest) (*RunResult, error) {
+	return c.runVia(ctx, req, true)
+}
+
+func (c *Client) runVia(ctx context.Context, req RunRequest, await bool) (*RunResult, error) {
 	if h, err := c.inProcess(); h != nil || err != nil {
 		if err != nil {
 			return nil, err
 		}
 		return h.Run(ctx, req)
 	}
-	body, err := c.call(ctx, msgRun, req)
+	var body json.RawMessage
+	var err error
+	if await {
+		body, err = c.callAwaited(ctx, msgRun, req)
+	} else {
+		body, err = c.call(ctx, msgRun, req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -323,11 +345,21 @@ func (e *workerDied) Error() string {
 // call sends a request to the worker, spawning one if there is none, and
 // waits for its reply.
 func (c *Client) call(ctx context.Context, typ string, body any) (json.RawMessage, error) {
+	return c.callVia(ctx, typ, body, false)
+}
+
+// callAwaited is call whose reply is awaited even when ctx ends (see
+// workerConn.request).
+func (c *Client) callAwaited(ctx context.Context, typ string, body any) (json.RawMessage, error) {
+	return c.callVia(ctx, typ, body, true)
+}
+
+func (c *Client) callVia(ctx context.Context, typ string, body any, await bool) (json.RawMessage, error) {
 	conn, err := c.worker()
 	if err != nil {
 		return nil, err
 	}
-	f, err := conn.request(ctx, typ, mustJSON(body))
+	f, err := conn.request(ctx, typ, mustJSON(body), await)
 	if err != nil {
 		return nil, err
 	}
@@ -553,8 +585,12 @@ func openWorkerLog(path string) (*os.File, error) {
 }
 
 // request sends one request and waits for its reply. If ctx ends first, it
-// tells the worker to cancel and returns; the late reply is dropped.
-func (c *workerConn) request(ctx context.Context, typ string, body json.RawMessage) (*frame, error) {
+// tells the worker to cancel and returns; the late reply is dropped. With
+// await, it tells the worker to cancel and still waits for the reply, which
+// then comes at once (a request queued or waiting for a lock is cancelled
+// before it holds anything; one past that finishes): what it kept is not
+// lost.
+func (c *workerConn) request(ctx context.Context, typ string, body json.RawMessage, await bool) (*frame, error) {
 	id := c.nextID.Add(1)
 	p := &pendingReq{done: make(chan *frame, 1), deadline: time.Now().Add(requestDeadline)}
 	c.mu.Lock()
@@ -580,6 +616,13 @@ func (c *workerConn) request(ctx context.Context, typ string, body json.RawMessa
 		return f, nil
 	case <-ctx.Done():
 		_ = c.send(&frame{ID: id, Type: msgCancel})
+		if await {
+			f, ok := <-p.done
+			if !ok {
+				return nil, &workerDied{cause: c.cause()}
+			}
+			return f, nil
+		}
 		c.forget(id)
 		return nil, ctx.Err()
 	}

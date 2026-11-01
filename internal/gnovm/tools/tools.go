@@ -119,6 +119,7 @@ type NamerFunc func(ctx context.Context, sessionID string, texts []string) map[s
 type RunOption func(*runOptions)
 
 type runOptions struct {
+	subAgent bool
 	onMem    MemGoalsFunc
 	bound    func(ctx context.Context, sessionID string) string
 	stack    func(ctx context.Context, sessionID string) []string
@@ -126,6 +127,13 @@ type runOptions struct {
 	namer    NamerFunc
 	onErased func(ctx context.Context, sessionID string, e gnovm.MemErasure)
 	onRules  func(ctx context.Context, sessionID string, rules []gnovm.MemRule)
+}
+
+// SubAgent says gnovm_run serves a sub-agent's session, whose Next never
+// waits for working sessions (PARALLEL.md): it would wait on its parent
+// while its parent waits on it.
+func SubAgent(yes bool) RunOption {
+	return func(o *runOptions) { o.subAgent = yes }
 }
 
 // Namer has gnovm_run ask f, before a call to mem, for names for the texts
@@ -190,7 +198,7 @@ func NewRunTool(vms *gnovm.Lazy, project string, opts ...RunOption) fantasy.Agen
 				return fantasy.NewTextErrorResponse("the Gno VMs are not available: " + err.Error()), nil
 			}
 			session := tools.GetSessionFromContext(ctx)
-			req := gnovm.RunRequest{Project: project, Session: session, Name: p.Name, Code: p.Code, Gas: gas, Reset: p.Reset, Req: call.ID}
+			req := gnovm.RunRequest{Project: project, Session: session, Name: p.Name, Code: p.Code, Gas: gas, Reset: p.Reset, Req: call.ID, SubAgent: o.subAgent}
 			if o.bound != nil && p.Name == gnovm.MemVM {
 				req.Goal = o.bound(ctx, session)
 			}
@@ -213,9 +221,11 @@ func NewRunTool(vms *gnovm.Lazy, project string, opts ...RunOption) fantasy.Agen
 			if res.Err != nil {
 				return fantasy.NewTextErrorResponse(renderRun(res, "")), nil
 			}
+			// The frames are the session's stack whatever happens to the
+			// turn: Esc after a call kept its pop or push must not lose them.
 			var frames string
 			if o.onFrames != nil && len(res.Frames) > 0 {
-				frames = o.onFrames(ctx, session, call.ID, res.Frames)
+				frames = o.onFrames(context.WithoutCancel(ctx), session, call.ID, res.Frames)
 			}
 			text := renderRun(res, frames)
 			if o.onMem != nil && len(res.MemGoals) > 0 {

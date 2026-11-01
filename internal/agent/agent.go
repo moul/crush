@@ -316,9 +316,12 @@ type sessionAgent struct {
 	tools        *csync.Slice[fantasy.AgentTool]
 
 	isSubAgent bool
-	agentType  string // see SessionAgentOptions.AgentType
-	sessions   session.Service
-	messages   message.Service
+	// holdTurn holds the session's turn lock while it is busy (see
+	// SessionAgentOptions.HoldTurn); nil holds nothing.
+	holdTurn  func(ctx context.Context, sessionID string) func()
+	agentType string // see SessionAgentOptions.AgentType
+	sessions  session.Service
+	messages  message.Service
 	// cfg backs channel reply routing (config lookup + MCP tool
 	// invocation). Nil in tests and sub-agents that never see channel
 	// turns; sendChannelReply treats nil as "routing disabled".
@@ -455,6 +458,10 @@ type SessionAgentOptions struct {
 	// Frames are the sessions' stacks of frames in mem (FRAMES.md), shared
 	// by a coordinator's agents and its gnovm_run; nil, there are none.
 	Frames *frameStacks
+	// HoldTurn holds the session's turn lock from when a prompt makes it
+	// busy until it goes idle (gnovm's Lazy.HoldTurn), so peer sessions see
+	// it working; the release it returns lets go. nil holds nothing.
+	HoldTurn func(ctx context.Context, sessionID string) func()
 	// MemBlock is what the project's mem holds (gnovm's Lazy.MemBlock),
 	// for a new session's first prompt and again after each summary; nil
 	// or "", nothing.
@@ -489,6 +496,7 @@ func NewSessionAgent(
 		environment:           csync.NewValue(""),
 		systemPrompt:          csync.NewValue(opts.SystemPrompt),
 		isSubAgent:            opts.IsSubAgent,
+		holdTurn:              opts.HoldTurn,
 		agentType:             opts.AgentType,
 		permissionModeOf:      opts.PermissionMode,
 		sessions:              opts.Sessions,
@@ -1074,6 +1082,15 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	}
 	sessMu.Unlock()
 
+	// The session is busy from here until it goes idle: its turn lock is
+	// held, so peers working the same plan in mem see it working. The run
+	// for a prompt queued behind this one starts from inside this one (the
+	// return at the end, or the handoff deferred below), while this hold
+	// stands, and shares it; released last, after that handoff, so there is
+	// no gap between them.
+	if a.holdTurn != nil {
+		defer a.holdTurn(ctx, call.SessionID)()
+	}
 	defer cancel()
 	// A turn that gave up must still run what was queued behind it. The
 	// handoff that does this sits at the end of the turn, below every

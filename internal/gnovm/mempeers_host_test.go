@@ -68,14 +68,14 @@ func TestTurnHeld(t *testing.T) {
 	require.NoError(t, err, "the file stays")
 }
 
-// wakePipe is a pipe a client would make: in waiters/new/, both ends open,
+// testPipe is a pipe a client would make: in waiters/new/, both ends open,
 // then pending in waiters/.
-type wakePipe struct {
+type testPipe struct {
 	name   string
 	rd, wr int
 }
 
-func makeWakePipe(t *testing.T, memdir, name string) *wakePipe {
+func makeWakePipe(t *testing.T, memdir, name string) *testPipe {
 	t.Helper()
 	fresh := filepath.Join(memdir, "waiters", "new", name)
 	require.NoError(t, os.MkdirAll(filepath.Dir(fresh), 0o700))
@@ -85,13 +85,13 @@ func makeWakePipe(t *testing.T, memdir, name string) *wakePipe {
 	wr, err := unix.Open(fresh, unix.O_WRONLY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	require.NoError(t, err)
 	require.NoError(t, os.Rename(fresh, filepath.Join(memdir, "waiters", name)))
-	p := &wakePipe{name: name, rd: rd, wr: wr}
+	p := &testPipe{name: name, rd: rd, wr: wr}
 	t.Cleanup(func() { _ = unix.Close(rd); _ = unix.Close(wr) })
 	return p
 }
 
 // rung is how many bytes the pipe holds now.
-func (p *wakePipe) rung() int {
+func (p *testPipe) rung() int {
 	buf := make([]byte, 64)
 	n, err := unix.Read(p.rd, buf)
 	if err != nil {

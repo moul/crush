@@ -397,6 +397,15 @@ const onDemandContextLimit = 40000
 // memBlock is how a main agent tells a session what the project's mem
 // holds, as it starts and after each summary; a sub-agent's sessions are
 // not told.
+// holdTurn holds a session's turn lock while it is busy, so peer sessions
+// working the same plan in mem see it working (gnovm's Lazy.HoldTurn).
+func (c *coordinator) holdTurn(ctx context.Context, sessionID string) func() {
+	if c.gnovms == nil {
+		return func() {}
+	}
+	return c.gnovms.HoldTurn(ctx, sessionID)
+}
+
 func (c *coordinator) memBlock(isSubAgent bool) func(sessionID string) string {
 	if c.gnovms == nil || isSubAgent {
 		return nil
@@ -1161,6 +1170,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		MemChanged:            c.memChanged(isSubAgent),
 		MemRecall:             c.memRecall(isSubAgent),
 		MemSummarized:         c.memSummarized(isSubAgent),
+		HoldTurn:              c.holdTurn,
 		DisableAutoSummarize:  c.cfg.Config().Options.DisableAutoSummarize,
 		DisableIdleCompaction: c.cfg.Config().Options.DisableIdleCompaction,
 		IsYolo:                c.permissions.SkipRequests(),
@@ -1308,7 +1318,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	if c.gnovms != nil {
 		allTools = append(allTools,
 			wrap(gnovmtools.NewRunTool(c.gnovms, c.cfg.WorkingDir(), gnovmtools.OnMemGoals(c.memGoals), gnovmtools.BoundGoal(c.goals.boundName), gnovmtools.OnMemErased(c.memErased), gnovmtools.OnMemRules(c.memRules),
-				gnovmtools.MemStack(c.frames.stack), gnovmtools.OnMemFrames(c.frames.events), gnovmtools.Namer(c.nameFor))),
+				gnovmtools.MemStack(c.frames.stack), gnovmtools.OnMemFrames(c.frames.events), gnovmtools.Namer(c.nameFor), gnovmtools.SubAgent(isSubAgent))),
 			wrap(gnovmtools.NewNewTool(c.gnovms, c.cfg.WorkingDir())),
 			wrap(gnovmtools.NewListTool(c.gnovms, c.cfg.WorkingDir())),
 			wrap(gnovmtools.NewDropTool(c.gnovms, c.cfg.WorkingDir(), c.permissions)),
