@@ -20,6 +20,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/filepathext"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/gitutil"
@@ -131,6 +132,10 @@ type ProjectSettings struct {
 	// files the agent would read without asking, as "folder (where it
 	// leads)".
 	Skills []string
+	// MCPEnabled are the MCP servers the project's own sessions database
+	// turns on (Toggle MCPs records them there), which startup starts
+	// even where the user's config keeps them off.
+	MCPEnabled []string
 	// GitPrograms are the programs the git repository's own config (or a
 	// post-index-change hook) has git run when it only reads the
 	// repository, as gitutil.Programs lists them: until the folder is
@@ -145,7 +150,8 @@ type ProjectSettings struct {
 // back.
 func (p *ProjectSettings) Holds() bool {
 	return p != nil && (len(p.Scripts)+len(p.Hooks)+len(p.MCPServers)+len(p.LSPServers)+
-		len(p.Providers)+len(p.Allowed)+len(p.Env)+len(p.Hosts)+len(p.Skills)+len(p.Other)+len(p.GitPrograms)) > 0
+		len(p.Providers)+len(p.Allowed)+len(p.Env)+len(p.Hosts)+len(p.Skills)+len(p.Other)+len(p.GitPrograms)+
+		len(p.MCPEnabled)) > 0
 }
 
 // GitRuns is GitPrograms, nil for no settings: the programs a git command
@@ -197,6 +203,9 @@ func (p *ProjectSettings) Lines() []string {
 	if len(p.GitPrograms) > 0 {
 		lines = append(lines, "let git run what its git config names whenever git reads the repository: "+strings.Join(p.GitPrograms, ", "))
 	}
+	if len(p.MCPEnabled) > 0 {
+		lines = append(lines, "start the MCP servers its sessions database turns on, even ones your own config turns off: "+strings.Join(p.MCPEnabled, ", "))
+	}
 	return lines
 }
 
@@ -239,6 +248,9 @@ func (p *ProjectSettings) Brief() string {
 	}
 	if len(p.GitPrograms) > 0 {
 		parts = append(parts, "git runs "+strings.Join(gitKeys(p.GitPrograms), ", "))
+	}
+	if len(p.MCPEnabled) > 0 {
+		parts = append(parts, "its database turns on "+strings.Join(p.MCPEnabled, ", "))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -289,6 +301,9 @@ func (p *ProjectSettings) Dangers() []string {
 	if len(p.Skills) > 0 || len(p.otherOf(readsFiles)) > 0 {
 		dangers = append(dangers, "The agent would read files outside this folder without asking, "+
 			"your keys among them if a path leads there.")
+	}
+	if n := len(p.MCPEnabled); n > 0 {
+		dangers = append(dangers, "Its sessions database would start "+nounFor(n, "MCP server")+" of yours that your own config turns off.")
 	}
 	if send := p.otherOf(sendsOut); len(send) > 0 {
 		dangers = append(dangers, "Its "+joinAnd(send)+" "+nounFor(len(send), "setting")+
@@ -827,6 +842,9 @@ type projectGate struct {
 	// directory in it is the project's own.
 	top  string
 	held *ProjectSettings
+	// dbHeld is set when the sessions database is the project's, in a
+	// folder not trusted (see holdDatabase).
+	dbHeld bool
 }
 
 // newProjectGate is the gate for a load in workingDir under trust.
@@ -859,6 +877,30 @@ func (g *projectGate) holds(path string) bool {
 		return false
 	}
 	return !slices.ContainsFunc(g.global, func(global string) bool { return sameFile(global, path) })
+}
+
+// holdDatabase notes, where the folder is not trusted and dataDir, the
+// data directory, is in the project (as .gnosh/ is), that the sessions
+// database there is the project's: a downloaded repository can carry one
+// that turns on MCP servers of the user's that the user's config turns
+// off, which startup would start. The servers it names are listed; and
+// none is started (see ConfigStore.DatabaseHeld), named or not, until the
+// folder is trusted.
+func (g *projectGate) holdDatabase(dataDir string) {
+	if g == nil || g.trusted || g.held == nil || dataDir == "" || !g.inProject(dataDir) {
+		return
+	}
+	g.dbHeld = true
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	names, err := db.MCPServersEnabledIn(ctx, dataDir)
+	if err != nil {
+		slog.Warn("Could not read the MCP servers the project's database turns on; none is started", "error", err)
+		return
+	}
+	for _, name := range names {
+		g.held.MCPEnabled = appendNew(g.held.MCPEnabled, Shown(name))
+	}
 }
 
 // holdsWorkspace reports whether path, the workspace config in the data
@@ -966,6 +1008,7 @@ func ScanProject(workingDir, dataDir string) (*ProjectSettings, bool, error) {
 			return nil, false, err
 		}
 	}
+	g.holdDatabase(dataDir)
 	g.skillDirsOut(workingDir)
 	return g.held, trust.Trusted, nil
 }

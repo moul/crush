@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/version"
 	"github.com/stretchr/testify/require"
 )
@@ -731,4 +732,38 @@ func TestUntrustedRepositoryGitProgramsAreHeld(t *testing.T) {
 	store, err = LoadFiles(dir, "", false, TrustFolderForSession())
 	require.NoError(t, err)
 	require.Nil(t, store.Config().HeldProject.GitRuns(), "a trusted folder's git runs as it is")
+}
+
+// A sessions database in the project's own .gnosh, as a downloaded
+// repository can carry, turns on no MCP server until the folder is
+// trusted: the servers it names are listed in the question, and none is
+// started. One kept outside the project is the user's.
+func TestProjectDatabaseMCPServersAreHeld(t *testing.T) {
+	dir := isolateTrust(t)
+	dataDir := filepath.Join(dir, ".gnosh")
+	conn, err := db.Connect(t.Context(), dataDir)
+	require.NoError(t, err)
+	require.NoError(t, db.New(conn).InsertMCPEnabledServer(t.Context(), "prod-db"))
+	require.NoError(t, db.Release(dataDir))
+
+	store, err := LoadFiles(dir, "", false)
+	require.NoError(t, err)
+	require.True(t, store.DatabaseHeld())
+	held := store.Config().HeldProject
+	require.Equal(t, []string{"prod-db"}, held.MCPEnabled)
+	require.Contains(t, held.Lines(), "start the MCP servers its sessions database turns on, even ones your own config turns off: prod-db")
+	require.Contains(t, held.Dangers(), "Its sessions database would start MCP server of yours that your own config turns off.")
+
+	settings, _, err := ScanProject(dir, "")
+	require.NoError(t, err)
+	require.Equal(t, held.MCPEnabled, settings.MCPEnabled)
+
+	store, err = LoadFiles(dir, "", false, TrustFolderForSession())
+	require.NoError(t, err)
+	require.False(t, store.DatabaseHeld(), "a trusted folder's database is used as it is")
+
+	elsewhere := t.TempDir()
+	store, err = LoadFiles(dir, elsewhere, false)
+	require.NoError(t, err)
+	require.False(t, store.DatabaseHeld(), "a data directory outside the project is the user's")
 }

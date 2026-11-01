@@ -469,6 +469,9 @@ Until you say yes:
   hook can too. Where it does, Gnosh shows the agent no git status, and the
   agent's git commands ask first, saying why. Your own git config is not the
   repository's and is not looked at.
+- A sessions database in the project's own `.gnosh/` (a repository can carry
+  one) starts none of the MCP servers it turns on, which Gnosh would start
+  even where your own config turns them off; the question lists them.
 - Its `AGENTS.md` and other context files, the skills inside it and its
   custom commands are still read, as text for the model. None of them runs
   anything.

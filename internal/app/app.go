@@ -195,8 +195,13 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 	// Config-disabled servers the user enabled via Toggle MCPs have a
 	// repository-scoped enabled override; force-start them so the toggle
 	// survives restarts. A read failure only means the override is skipped.
+	// Where the database is the project's own and the folder is not
+	// trusted, a downloaded repository could have written them: none is
+	// started until the folder is trusted (the trust question lists them).
 	var forceStart []string
-	if enabled, err := app.Sessions.MCPServersEnabled(ctx); err != nil {
+	if store.DatabaseHeld() {
+		slog.Info("The folder is not trusted, so the MCP servers its sessions database turns on stay off")
+	} else if enabled, err := app.Sessions.MCPServersEnabled(ctx); err != nil {
 		slog.Warn("Failed to list enabled MCP overrides; config-disabled servers stay disabled", "error", err)
 	} else {
 		for _, name := range enabled {

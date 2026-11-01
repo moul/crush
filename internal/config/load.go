@@ -123,6 +123,8 @@ func loadFiles(workingDir, dataDir string, debug bool, opts ...LoadOption) (*Con
 	// After the workspace merge, whose setDefaults adds the project's
 	// skills folders again.
 	gate.holdSkillDirs(cfg, workingDir)
+	gate.holdDatabase(cfg.Options.DataDirectory)
+	store.databaseHeld = gate.dbHeld
 	cfg.HeldProject = gate.heldSettings()
 
 	// Validate after all config merging is complete, so the checks see

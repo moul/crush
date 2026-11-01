@@ -145,6 +145,9 @@ type ConfigStore struct {
 	// trust is whether the project's own settings are used, decided as the
 	// store first loads and kept by every reload.
 	trust ProjectTrust
+	// databaseHeld is set when the sessions database is the project's, in
+	// a folder not trusted: the MCP servers it turns on are not started.
+	databaseHeld bool
 
 	// configMu guards the config pointer field against concurrent
 	// readers (Config) and the writeMu-serialised swap (setConfig). It
@@ -207,6 +210,15 @@ func (s *ConfigStore) WorkingDir() string {
 // folder, and whether it is trusted, for good or for this session.
 func (s *ConfigStore) ProjectTrust() ProjectTrust {
 	return s.trust
+}
+
+// DatabaseHeld reports whether the sessions database is the project's own
+// (in its .gnosh, say) in a folder not trusted: then the MCP servers it
+// turns on, which startup would start even where the user's config turns
+// them off, are not started, since a downloaded repository can carry a
+// database of its own.
+func (s *ConfigStore) DatabaseHeld() bool {
+	return s.databaseHeld
 }
 
 // Resolver returns the variable resolver.
@@ -1584,6 +1596,8 @@ func (s *ConfigStore) reloadFromDiskLocked(ctx context.Context) error {
 	// After the workspace merge, whose setDefaults adds the project's
 	// skills folders again.
 	gate.holdSkillDirs(cfg, s.workingDir)
+	gate.holdDatabase(cfg.Options.DataDirectory)
+	s.databaseHeld = gate.dbHeld
 	cfg.HeldProject = gate.heldSettings()
 
 	// Validate after all config merging is complete, the same checks the
