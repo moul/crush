@@ -322,6 +322,9 @@ type turnResult struct {
 	answer  string
 	isError bool
 	took    time.Duration
+	// turn is the scenario's turn this is, or a peer of: a turn worked by
+	// peers has one result per peer.
+	turn int
 }
 
 type toolCall struct {
@@ -438,7 +441,7 @@ func (r *scenarioRun) run(t *testing.T, sc *scenario, gnosh, home, reasoning str
 			for k, po := range outsP {
 				outs, errs = append(outs, po.stdout.Bytes()), append(errs, po.stderr.Bytes())
 				tr := parseStream(bytes.NewReader(po.stdout.Bytes()))
-				tr.prompt, tr.took = fmt.Sprintf("(peer %d of %d) %s", k+1, peers, ts.prompt), r.peersWall
+				tr.prompt, tr.took, tr.turn = fmt.Sprintf("(peer %d of %d) %s", k+1, peers, ts.prompt), r.peersWall, i
 				if po.err != nil && tr.answer == "" {
 					tr.answer = fmt.Sprintf("(gnosh failed: %v; %s)", po.err, lastLine(po.stderr.String()))
 					tr.isError = true
@@ -477,7 +480,7 @@ func (r *scenarioRun) run(t *testing.T, sc *scenario, gnosh, home, reasoning str
 		cancel()
 		outs, errs = append(outs, stdout.Bytes()), append(errs, stderr.Bytes())
 		tr := parseStream(bytes.NewReader(stdout.Bytes()))
-		tr.prompt, tr.took = ts.prompt, time.Since(turnStart)
+		tr.prompt, tr.took, tr.turn = ts.prompt, time.Since(turnStart), i
 		if err != nil && tr.answer == "" {
 			tr.answer = fmt.Sprintf("(gnosh failed: %v; %s)", err, lastLine(stderr.String()))
 			tr.isError = true
@@ -939,12 +942,12 @@ func lastLine(s string) string {
 func writeReport(t *testing.T, r *scenarioRun, sc *scenario) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s / %s\n\n%s\n\n", r.scenario, r.variant, sc.about)
-	for i, tr := range r.turns {
+	for _, tr := range r.turns {
 		kind := "same session"
-		if sc.turns[i].fresh {
+		if sc.turns[tr.turn].fresh {
 			kind = "new session"
 		}
-		fmt.Fprintf(&b, "## Turn %d (%s, %s)\n\n**Prompt:** %s\n\n", i+1, kind, tr.took.Round(time.Second), tr.prompt)
+		fmt.Fprintf(&b, "## Turn %d (%s, %s)\n\n**Prompt:** %s\n\n", tr.turn+1, kind, tr.took.Round(time.Second), tr.prompt)
 		for _, c := range tr.calls {
 			mark := ""
 			if c.isError {
