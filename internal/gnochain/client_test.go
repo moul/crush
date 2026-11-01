@@ -172,7 +172,14 @@ func (n *fakeNode) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		n.mu.Unlock()
 		resp := map[string]any{"ResponseBase": map[string]any{"Error": nil, "Data": nil, "Log": ""}, "Value": nil}
 		base := resp["ResponseBase"].(map[string]any)
-		switch path := param("path"); {
+		switch path, height := param("path"), param("height"); {
+		case height == "7":
+			base["Error"] = map[string]any{"@type": "/std.InternalError"}
+			base["Log"] = "height 7 is not available"
+		case path == "vm/qeval" && string(data) == "gno.land/r/demo/x.Hello()" && height == "41":
+			base["Data"] = b64([]byte(`("hi at 41" string)`))
+		case path == "vm/qeval" && string(data) == "gno.land/r/demo/x.Page()" && height == "41":
+			base["Data"] = b64([]byte(`("{\"n\":41}" string)`))
 		case path == "vm/qeval" && string(data) == "gno.land/r/demo/x.Hello()":
 			base["Data"] = b64([]byte(`("hi" string)`))
 		case path == "vm/qeval":
@@ -293,4 +300,32 @@ func TestLive(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = c.WithSigner(s).account(ctx)
 	require.NoError(t, err, "the key's account is on the chain")
+}
+
+// A query, an expression or a JSON view can be read at one height, so that
+// a view read in pages reads one moment; a height the node no longer keeps
+// comes back as the node's error.
+func TestReadsAtAHeight(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(&fakeNode{})
+	defer srv.Close()
+	ctx := t.Context()
+	c, err := Dial(ctx, srv.URL, "test-chain")
+	require.NoError(t, err)
+
+	v, err := c.EvalAt(ctx, 41, "gno.land/r/demo/x", "Hello()")
+	require.NoError(t, err)
+	require.Equal(t, "hi at 41", v)
+	v, err = c.EvalAt(ctx, 0, "gno.land/r/demo/x", "Hello()")
+	require.NoError(t, err)
+	require.Equal(t, "hi", v, "height 0 is the latest")
+
+	var page struct{ N int }
+	require.NoError(t, c.EvalJSONAt(ctx, 41, "gno.land/r/demo/x", "Page()", &page))
+	require.Equal(t, 41, page.N)
+
+	_, err = c.QueryAt(ctx, 7, "vm/qeval", []byte("gno.land/r/demo/x.Hello()"))
+	require.ErrorContains(t, err, "height 7 is not available")
+	_, err = c.QueryAt(ctx, -1, "vm/qeval", nil)
+	require.Error(t, err)
 }

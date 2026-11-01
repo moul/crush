@@ -94,14 +94,16 @@ func (r *rpc) status(ctx context.Context) (network string, height int64, err err
 	return res.NodeInfo.Network, height, nil
 }
 
-func (r *rpc) abciQuery(ctx context.Context, path string, data []byte) (responseBase, []byte, error) {
+// abciQuery asks the node an ABCI query of the state at height, 0 for the
+// latest.
+func (r *rpc) abciQuery(ctx context.Context, height int64, path string, data []byte) (responseBase, []byte, error) {
 	var res struct {
 		Response struct {
 			ResponseBase responseBase `json:"ResponseBase"`
 			Value        []byte       `json:"Value"`
 		} `json:"response"`
 	}
-	params := map[string]any{"path": path, "data": base64.StdEncoding.EncodeToString(data), "height": "0", "prove": false}
+	params := map[string]any{"path": path, "data": base64.StdEncoding.EncodeToString(data), "height": strconv.FormatInt(height, 10), "prove": false}
 	if err := r.call(ctx, "abci_query", params, &res); err != nil {
 		return responseBase{}, nil, err
 	}

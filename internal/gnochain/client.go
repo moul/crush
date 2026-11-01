@@ -79,9 +79,22 @@ func (c *Client) Height(ctx context.Context) (int64, error) {
 }
 
 // Query asks the node an ABCI query (vm/qeval, auth/accounts/<addr>,
-// auth/gasprice...) and returns its data, or its error.
+// auth/gasprice...) of the latest state and returns its data, or its
+// error.
 func (c *Client) Query(ctx context.Context, path string, data []byte) ([]byte, error) {
-	base, _, err := c.rpc.abciQuery(ctx, path, data)
+	return c.QueryAt(ctx, 0, path, data)
+}
+
+// QueryAt is Query of the state at height (0 for the latest), so that
+// several queries read one moment: a view read in pages, say, whose pages
+// read at the latest height could each come from another block. A node
+// that no longer keeps the state at height (it prunes) refuses with its
+// own error; read again at a newer height.
+func (c *Client) QueryAt(ctx context.Context, height int64, path string, data []byte) ([]byte, error) {
+	if height < 0 {
+		return nil, fmt.Errorf("query %s: height %d", path, height)
+	}
+	base, _, err := c.rpc.abciQuery(ctx, height, path, data)
 	if err != nil {
 		return nil, fmt.Errorf("query %s: %w", path, err)
 	}
@@ -92,9 +105,14 @@ func (c *Client) Query(ctx context.Context, path string, data []byte) ([]byte, e
 }
 
 // Eval evaluates a non-crossing expression of the realm at pkgPath, such
-// as TargetJSON("t1"), and returns its value as text.
+// as TargetJSON("t1"), on the latest state and returns its value as text.
 func (c *Client) Eval(ctx context.Context, pkgPath, expr string) (string, error) {
-	out, err := c.Query(ctx, "vm/qeval", []byte(pkgPath+"."+expr))
+	return c.EvalAt(ctx, 0, pkgPath, expr)
+}
+
+// EvalAt is Eval on the state at height (0 for the latest); see QueryAt.
+func (c *Client) EvalAt(ctx context.Context, height int64, pkgPath, expr string) (string, error) {
+	out, err := c.QueryAt(ctx, height, "vm/qeval", []byte(pkgPath+"."+expr))
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", expr, err)
 	}
@@ -103,7 +121,13 @@ func (c *Client) Eval(ctx context.Context, pkgPath, expr string) (string, error)
 
 // EvalJSON is Eval of an expression whose value is JSON, decoded into v.
 func (c *Client) EvalJSON(ctx context.Context, pkgPath, expr string, v any) error {
-	s, err := c.Eval(ctx, pkgPath, expr)
+	return c.EvalJSONAt(ctx, 0, pkgPath, expr, v)
+}
+
+// EvalJSONAt is EvalJSON on the state at height (0 for the latest); see
+// QueryAt.
+func (c *Client) EvalJSONAt(ctx context.Context, height int64, pkgPath, expr string, v any) error {
+	s, err := c.EvalAt(ctx, height, pkgPath, expr)
 	if err != nil {
 		return err
 	}
@@ -253,7 +277,7 @@ func (c *Client) simulate(ctx context.Context, tx std.Tx, accNum, seq uint64) (i
 	if err != nil {
 		return 0, false, "", err
 	}
-	base, value, err := c.rpc.abciQuery(ctx, ".app/simulate", bz)
+	base, value, err := c.rpc.abciQuery(ctx, 0, ".app/simulate", bz)
 	if err != nil {
 		return 0, false, "", fmt.Errorf("simulating: %w", err)
 	}
