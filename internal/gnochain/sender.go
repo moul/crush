@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -37,6 +38,18 @@ type Sender struct {
 	accNum, seq uint64
 	known       bool
 	gp          std.GasPrice
+}
+
+// Pool lets the client keep up to n connections to the node open between
+// requests, for many senders at once: Go's default keeps two per host and
+// opens and closes another for every request beyond them, which under a
+// swarm exhausts ports and slows every request. Clients made from this one
+// (WithSigner) share the pool.
+func (c *Client) Pool(n int) {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConns = n
+	t.MaxIdleConnsPerHost = n
+	c.rpc.hc = &http.Client{Timeout: c.rpc.hc.Timeout, Transport: t}
 }
 
 // Sender returns a Sender for the client's signer.
