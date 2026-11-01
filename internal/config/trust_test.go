@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -430,8 +431,9 @@ func requireGit(t *testing.T) {
 // A folder cannot borrow a trusted repository's trust by naming it in a
 // .git of its own: a .git file naming the repository's git directory, or
 // the git directory of a worktree of it that is not this folder, or a .git
-// directory whose core.worktree is the repository. Each is keyed on
-// itself, and the repository's real worktree still shares its trust.
+// symlinked to that worktree's, or a .git directory whose core.worktree is
+// the repository. Each is keyed on itself, and the repository's real
+// worktree still shares its trust.
 func TestFolderCannotBorrowARepositorysTrust(t *testing.T) {
 	requireGit(t)
 	isolateTrust(t)
@@ -455,12 +457,17 @@ func TestFolderCannotBorrowARepositorysTrust(t *testing.T) {
 	}
 	direct := gitFile("direct", filepath.Join(trusted, ".git"))
 	borrowed := gitFile("borrowed", filepath.Join(trusted, ".git", "worktrees", "wt"))
+	// A .git that is a symlink to the real worktree's .git file: git
+	// follows it, and the worktree's record names wt, not this folder.
+	linked := filepath.Join(parent, "linked")
+	require.NoError(t, os.MkdirAll(linked, 0o755))
+	require.NoError(t, os.Symlink(filepath.Join(wt, ".git"), filepath.Join(linked, ".git")))
 	elsewhere := filepath.Join(parent, "elsewhere")
 	require.NoError(t, os.MkdirAll(elsewhere, 0o755))
 	git(t, elsewhere, "init", "-q")
 	git(t, elsewhere, "config", "core.worktree", trusted)
 
-	for _, dir := range []string{direct, borrowed, elsewhere} {
+	for _, dir := range []string{direct, borrowed, linked, elsewhere} {
 		folder, inRepo := TrustFolderOf(dir)
 		require.Equal(t, dir, folder, dir)
 		require.True(t, inRepo, dir)
@@ -483,11 +490,17 @@ func TestUntrustedSkillsFolderLinkedOutIsHeld(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(linked), 0o755))
 	require.NoError(t, os.Symlink(outside, linked))
 	require.NoError(t, os.MkdirAll(inside, 0o755))
+	// A workspace config, even an empty one, is merged after the defaults
+	// and sets them again: the folder must stay out all the same.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".gnosh"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gnosh", "gnosh.json"), []byte(`{}`), 0o600))
 
 	store, err := LoadFiles(dir, "", false)
 	require.NoError(t, err)
 	require.NotContains(t, store.Config().Options.SkillsPaths, linked)
 	require.Contains(t, store.Config().Options.SkillsPaths, inside)
+	require.NoError(t, store.ReloadFromDisk(context.Background()))
+	require.NotContains(t, store.Config().Options.SkillsPaths, linked, "a reload keeps it out")
 	held := store.Config().HeldProject
 	require.Equal(t, []string{filepath.Join(".agents", "skills") + " (it leads to " + outside + ")"}, held.Skills)
 	require.Contains(t, held.Brief(), "1 skills folder linked out of the project")
@@ -527,4 +540,82 @@ func TestHeldSettingsAreShownSafely(t *testing.T) {
 	for _, line := range append(settings.Lines(), settings.Brief(), TrustCommand(filepath.Join(dir, "a\u001b[2Jb"))) {
 		require.False(t, strings.ContainsFunc(line, hidden), "%q", line)
 	}
+}
+
+// A repository whose config names another folder its work tree
+// (core.worktree, which a downloaded repository's own .git can set) does
+// not move the project out from under its data directory: its .gnosh is
+// still the project's, and held.
+func TestWorktreeElsewhereKeepsTheDataDirectoryHeld(t *testing.T) {
+	requireGit(t)
+	dir := isolateTrust(t)
+	elsewhere := canonicalDir(t.TempDir())
+	git(t, dir, "init", "-q")
+	git(t, dir, "config", "core.worktree", elsewhere)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".gnosh"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gnosh", "gnosh.json"),
+		[]byte(`{"hooks": {"Stop": [{"command": "./x.sh"}]}}`), 0o600))
+
+	store, err := LoadFiles(dir, "", false)
+	require.NoError(t, err)
+	require.Empty(t, store.Config().Hooks)
+	require.Equal(t, []string{"Stop: ./x.sh"}, store.Config().HeldProject.Hooks)
+
+	settings, _, err := ScanProject(dir, "")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Stop: ./x.sh"}, settings.Hooks)
+}
+
+// The question lists what trust would turn on, as the load reads the file,
+// not as its text reads: a key given twice counts as the load takes it,
+// and a key in other letters as the field it decodes into, so a duplicate
+// cannot show one command, server state or base_url while the load uses
+// another.
+func TestHeldSettingsAreWhatTheLoadWouldUse(t *testing.T) {
+	dir := isolateTrust(t)
+	cfg := `{"hooks": {"Stop": [{"command": "echo first", "command": "echo second"}]},
+		"mcp": {"helper": {"command": "./s", "disabled": true, "disabled": false}},
+		"providers": {"p": {"type": "openai-compat", "base_url": "https://first.example/v1", "base_url": "https://second.example/v1"}},
+		"HOOKS": {"PreToolUse": [{"command": "./upper.sh"}]}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "gnosh.json"), []byte(cfg), 0o644))
+
+	settings, _, err := ScanProject(dir, "")
+	require.NoError(t, err)
+	store, err := LoadFiles(dir, "", false, TrustFolderForSession())
+	require.NoError(t, err)
+	used := store.Config()
+
+	for _, h := range used.Hooks[EventStop] {
+		require.Contains(t, settings.Hooks, "Stop: "+h.Command)
+	}
+	require.Len(t, settings.Hooks, len(used.Hooks[EventStop])+len(used.Hooks[EventPreToolUse]))
+	if !used.MCP["helper"].Disabled {
+		require.Contains(t, settings.MCPServers, "helper")
+	}
+	p, ok := used.Providers.Get("p")
+	require.True(t, ok)
+	require.Equal(t, []string{"p (" + p.BaseURL + ")"}, settings.Providers)
+	for _, h := range used.Hooks[EventPreToolUse] {
+		require.Contains(t, settings.Hooks, "PreToolUse: "+h.Command)
+	}
+}
+
+// What an untrusted folder keeps is exactly untrustedKept, whatever else
+// its file sets.
+func TestKeptIsExactlyUntrustedKept(t *testing.T) {
+	data, err := keptOf(&Config{
+		Permissions: &Permissions{AllowedTools: []string{"bash"}, Allow: []string{"Read"}, Deny: []string{"WebFetch"}},
+		Options:     &Options{DisabledTools: []string{"fetch"}, DisabledSkills: []string{"jq"}, Debug: true, DataDirectory: "/x"},
+		Env:         map[string]string{"A": "b"},
+	})
+	require.NoError(t, err)
+	var kept map[string]map[string]any
+	require.NoError(t, json.Unmarshal(data, &kept))
+	var paths []string
+	for section, fields := range kept {
+		for field := range fields {
+			paths = append(paths, section+"."+field)
+		}
+	}
+	require.ElementsMatch(t, untrustedKept, paths)
 }

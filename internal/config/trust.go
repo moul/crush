@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,8 +25,6 @@ import (
 	"github.com/charmbracelet/crush/internal/home"
 	"github.com/charmbracelet/crush/internal/lock"
 	"github.com/charmbracelet/crush/internal/version"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // A folder's own settings, its project settings, are the gnoshrc and
@@ -273,23 +272,47 @@ func plural(n int, noun string) string {
 }
 
 // split returns what of data, the JSON config at path, an untrusted folder
-// still uses (untrustedKept), and notes the rest in p.
+// still uses (untrustedKept), and notes the rest in p. Both come from the
+// file as a load reads it, its hook groups flattened, then merged and
+// decoded as every config file is, not from its text: a key given twice,
+// or in other letters ("HOOKS"), means what the load makes of it, so the
+// question lists what trust would turn on, and a duplicate cannot show one
+// command while the load runs another.
 func (p *ProjectSettings) split(path string, data []byte) ([]byte, error) {
-	kept := []byte("{}")
-	for _, key := range untrustedKept {
-		v := gjson.GetBytes(data, key)
-		if !v.Exists() {
-			continue
-		}
-		var err error
-		if kept, err = sjson.SetRawBytes(kept, key, []byte(v.Raw)); err != nil {
-			return nil, fmt.Errorf("config file %s: %w", path, err)
-		}
+	flat, err := flattenHookGroups(data)
+	if err != nil {
+		return nil, fmt.Errorf("config file %s: %w", path, err)
 	}
-	if p.note(data) {
+	cfg, err := loadFromBytes([][]byte{flat})
+	if err != nil {
+		return nil, fmt.Errorf("config file %s: %w", path, err)
+	}
+	if p.note(cfg) {
 		p.Files = appendNew(p.Files, path)
 	}
-	return kept, nil
+	return keptOf(cfg)
+}
+
+// keptOf is the JSON of what of cfg, a project's config file, an untrusted
+// folder still uses: the settings untrustedKept names, and nothing else.
+func keptOf(cfg *Config) ([]byte, error) {
+	kept := map[string]map[string][]string{}
+	if cfg.Permissions != nil && len(cfg.Permissions.Deny) > 0 {
+		kept["permissions"] = map[string][]string{"deny": cfg.Permissions.Deny}
+	}
+	if o := cfg.Options; o != nil {
+		options := map[string][]string{}
+		if len(o.DisabledTools) > 0 {
+			options["disabled_tools"] = o.DisabledTools
+		}
+		if len(o.DisabledSkills) > 0 {
+			options["disabled_skills"] = o.DisabledSkills
+		}
+		if len(options) > 0 {
+			kept["options"] = options
+		}
+	}
+	return json.Marshal(kept)
 }
 
 // addScript notes path, a shell config an untrusted folder does not run.
@@ -298,121 +321,78 @@ func (p *ProjectSettings) addScript(path string) {
 	p.Files = appendNew(p.Files, path)
 }
 
-// note adds to p what data, a project's JSON config, holds back, and
-// reports whether it held anything.
-func (p *ProjectSettings) note(data []byte) bool {
+// note adds to p what cfg, a project's config file as a load decodes it,
+// holds back, and reports whether it held anything.
+func (p *ProjectSettings) note(cfg *Config) bool {
 	noted := false
 	add := func(list *[]string, items ...string) {
 		for _, item := range items {
-			item = Shown(item)
-			if !slices.Contains(*list, item) {
-				*list = append(*list, item)
-			}
+			*list = appendNew(*list, Shown(item))
 			noted = true
 		}
 	}
-	gjson.ParseBytes(data).ForEach(func(key, value gjson.Result) bool {
-		k := key.String()
-		if k == "$schema" {
-			return true
+	for _, event := range slices.Sorted(maps.Keys(cfg.Hooks)) {
+		if len(cfg.Hooks[event]) == 0 {
+			add(&p.Hooks, event+": (a hook)")
 		}
-		if !value.IsObject() {
-			add(&p.Other, k)
-			return true
+		for _, h := range cfg.Hooks[event] {
+			add(&p.Hooks, event+": "+cmp.Or(h.Command, "(no command)"))
 		}
-		switch k {
-		case "hooks":
-			value.ForEach(func(event, entries gjson.Result) bool {
-				add(&p.Hooks, hookCommands(event.String(), entries)...)
-				return true
-			})
-		case "mcp":
-			add(&p.MCPServers, enabledNames(value)...)
-		case "lsp":
-			add(&p.LSPServers, enabledNames(value)...)
-		case "providers":
-			value.ForEach(func(id, provider gjson.Result) bool {
-				item := id.String()
-				if u := provider.Get("base_url").String(); u != "" {
-					item += " (" + u + ")"
-				}
-				add(&p.Providers, item)
-				return true
-			})
-		case "permissions":
-			value.ForEach(func(field, v gjson.Result) bool {
-				switch f := field.String(); f {
-				case "deny":
-				case "allowed_tools", "allow":
-					for _, t := range v.Array() {
-						add(&p.Allowed, t.String())
-					}
-				default:
-					add(&p.Other, "permissions."+f)
-				}
-				return true
-			})
-		case "env":
-			add(&p.Env, keys(value)...)
-		case "hosts":
-			add(&p.Hosts, keys(value)...)
-		case "options":
-			value.ForEach(func(field, _ gjson.Result) bool {
-				if name := "options." + field.String(); !slices.Contains(untrustedKept, name) {
-					add(&p.Other, name)
-				}
-				return true
-			})
-		default:
-			add(&p.Other, k)
+	}
+	for _, name := range slices.Sorted(maps.Keys(cfg.MCP)) {
+		if !cfg.MCP[name].Disabled {
+			add(&p.MCPServers, name)
 		}
-		return true
-	})
+	}
+	for _, name := range slices.Sorted(maps.Keys(cfg.LSP)) {
+		if !cfg.LSP[name].Disabled {
+			add(&p.LSPServers, name)
+		}
+	}
+	if cfg.Providers != nil {
+		providers := cfg.Providers.Copy()
+		for _, id := range slices.Sorted(maps.Keys(providers)) {
+			item := id
+			if u := providers[id].BaseURL; u != "" {
+				item += " (" + u + ")"
+			}
+			add(&p.Providers, item)
+		}
+	}
+	if cfg.Permissions != nil {
+		add(&p.Allowed, cfg.Permissions.AllowedTools...)
+		add(&p.Allowed, cfg.Permissions.Allow...)
+	}
+	add(&p.Env, slices.Sorted(maps.Keys(cfg.Env))...)
+	add(&p.Hosts, slices.Sorted(maps.Keys(cfg.Hosts))...)
+	if len(cfg.Models) > 0 {
+		add(&p.Other, "models")
+	}
+	if len(cfg.RecentModels) > 0 {
+		add(&p.Other, "recent_models")
+	}
+	if !reflect.ValueOf(cfg.Tools).IsZero() {
+		add(&p.Other, "tools")
+	}
+	add(&p.Other, setOptions(cfg.Options)...)
 	return noted
 }
 
-// hookCommands are the commands event's hook entries run, as "Event:
-// command", whether in gnosh's shape or in Claude Code's groups.
-func hookCommands(event string, entries gjson.Result) []string {
-	var commands []string
-	addCommand := func(h gjson.Result) {
-		commands = append(commands, event+": "+cmp.Or(h.Get("command").String(), "(no command)"))
+// setOptions are the options o sets, as "options.<name>", but for those an
+// untrusted folder keeps.
+func setOptions(o *Options) []string {
+	if o == nil {
+		return nil
 	}
-	for _, entry := range entries.Array() {
-		if group := entry.Get("hooks"); group.IsArray() {
-			for _, h := range group.Array() {
-				addCommand(h)
-			}
+	var names []string
+	v := reflect.ValueOf(*o)
+	for i := range v.NumField() {
+		name, _, _ := strings.Cut(v.Type().Field(i).Tag.Get("json"), ",")
+		if name == "" || name == "-" || v.Field(i).IsZero() || slices.Contains(untrustedKept, "options."+name) {
 			continue
 		}
-		addCommand(entry)
+		names = append(names, "options."+name)
 	}
-	if len(commands) == 0 {
-		commands = append(commands, event+": (a hook)")
-	}
-	return commands
-}
-
-// enabledNames are the names of the servers in value that are not
-// disabled.
-func enabledNames(value gjson.Result) []string {
-	var names []string
-	value.ForEach(func(name, server gjson.Result) bool {
-		if !server.Get("disabled").Bool() {
-			names = append(names, name.String())
-		}
-		return true
-	})
-	return names
-}
-
-// keys are value's keys, in order.
-func keys(value gjson.Result) []string {
-	var names []string
-	value.ForEach(func(name, _ gjson.Result) bool {
-		names = append(names, name.String())
-		return true
-	})
 	return names
 }
 
@@ -485,20 +465,29 @@ func TrustFolderOf(dir string) (folder string, inRepo bool) {
 	// worktree's .git. A submodule's lives in its superproject's
 	// .git/modules, and a bare repository's is the repository: those keep
 	// their own top level.
-	if gitDir != common && filepath.Base(common) == ".git" && filepath.Dir(gitDir) == filepath.Join(common, "worktrees") {
-		if back, err := os.ReadFile(filepath.Join(gitDir, "gitdir")); err == nil {
-			// Relative to the git directory where git keeps it so
-			// (worktree.useRelativePaths).
-			named := strings.TrimSpace(string(back))
-			if !filepath.IsAbs(named) {
-				named = filepath.Join(gitDir, named)
-			}
-			if sameFile(named, filepath.Join(top, ".git")) {
-				return canonicalDir(filepath.Dir(common)), true
-			}
-		}
+	if gitDir != common && filepath.Base(common) == ".git" && filepath.Dir(gitDir) == filepath.Join(common, "worktrees") && linkedHere(gitDir, top) {
+		return canonicalDir(filepath.Dir(common)), true
 	}
 	return top, true
+}
+
+// linkedHere reports whether the linked worktree whose git directory is
+// gitDir is the one at top: whether the gitdir file there names top's own
+// .git, and that .git is a file of top's, not a symlink to another
+// worktree's, which would name that worktree's folder.
+func linkedHere(gitDir, top string) bool {
+	back, err := os.ReadFile(filepath.Join(gitDir, "gitdir"))
+	if err != nil {
+		return false
+	}
+	// Relative to the git directory where git keeps it so
+	// (worktree.useRelativePaths).
+	named := strings.TrimSpace(string(back))
+	if !filepath.IsAbs(named) {
+		named = filepath.Join(gitDir, named)
+	}
+	info, err := os.Lstat(filepath.Join(top, ".git"))
+	return err == nil && info.Mode().IsRegular() && filepath.Base(named) == ".git" && canonicalDir(filepath.Dir(named)) == top
 }
 
 // trustPath is the trust file.

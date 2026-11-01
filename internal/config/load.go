@@ -97,7 +97,6 @@ func loadFiles(workingDir, dataDir string, debug bool, opts ...LoadOption) (*Con
 	}
 
 	cfg.setDefaults(workingDir, dataDir)
-	gate.holdSkillDirs(cfg, workingDir)
 
 	store := &ConfigStore{
 		config:         cfg,
@@ -121,6 +120,9 @@ func loadFiles(workingDir, dataDir string, debug bool, opts ...LoadOption) (*Con
 		store.config = cfg
 		store.loadedPaths = append(store.loadedPaths, store.workspacePath)
 	}
+	// After the workspace merge, whose setDefaults adds the project's
+	// skills folders again.
+	gate.holdSkillDirs(cfg, workingDir)
 	cfg.HeldProject = gate.heldSettings()
 
 	// Validate after all config merging is complete, so the checks see
@@ -1594,7 +1596,7 @@ func computeWorktreeRoot(dir string) string {
 // fallback keeps Crush from silently adopting state files placed above
 // the current project.
 func projectBoundary(dir string) string {
-	if root := worktreeRoot(dir); root != "" {
+	if root := projectRoot(dir); root != "" {
 		return root
 	}
 	abs, err := filepath.Abs(dir)
@@ -1602,6 +1604,20 @@ func projectBoundary(dir string) string {
 		return dir
 	}
 	return abs
+}
+
+// projectRoot is the git working tree root of the repository dir is in,
+// or "" outside one. It must hold dir: a repository's config can name
+// any folder its work tree (core.worktree), and a folder's own .git can
+// say so, so a root elsewhere is not dir's project, and the searches it
+// bounds would otherwise run past dir to the filesystem's root, or treat
+// a stranger's data directory as outside the project.
+func projectRoot(dir string) string {
+	root := worktreeRoot(dir)
+	if root == "" || !isWithin(canonicalDir(root), canonicalDir(dir)) {
+		return ""
+	}
+	return root
 }
 
 // GlobalSkillsDirs returns the default directories for Agent Skills.
@@ -1672,7 +1688,7 @@ func ProjectSkillsDir(workingDir string) []string {
 
 	// When the working directory is inside a git repository, also look at
 	// the repository root so monorepo-level .agents/skills are found.
-	if root := worktreeRoot(workingDir); root != "" && root != workingDir {
+	if root := projectRoot(workingDir); root != "" && root != workingDir {
 		for _, sub := range projectSkillSubdirs {
 			dirs = append(dirs, filepath.Join(root, sub))
 		}

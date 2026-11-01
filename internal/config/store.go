@@ -1571,7 +1571,6 @@ func (s *ConfigStore) reloadFromDiskLocked(ctx context.Context) error {
 		dataDir = cur.Options.DataDirectory
 	}
 	cfg.setDefaults(s.workingDir, dataDir)
-	gate.holdSkillDirs(cfg, s.workingDir)
 
 	// Merge workspace config if present
 	workspacePath := configFileIn(cfg.Options.DataDirectory)
@@ -1582,6 +1581,9 @@ func (s *ConfigStore) reloadFromDiskLocked(ctx context.Context) error {
 	if merged {
 		loadedPaths = append(loadedPaths, workspacePath)
 	}
+	// After the workspace merge, whose setDefaults adds the project's
+	// skills folders again.
+	gate.holdSkillDirs(cfg, s.workingDir)
 	cfg.HeldProject = gate.heldSettings()
 
 	// Validate after all config merging is complete, the same checks the
