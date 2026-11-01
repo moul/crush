@@ -104,7 +104,89 @@ func TestUntrustedFolderHoldsWhatRunsCodeOrGrants(t *testing.T) {
 	require.Equal(t, []string{"options.context_paths", "options.data_directory"}, held.Other)
 	require.Contains(t, held.Brief(), "runs .gnoshrc")
 	require.Contains(t, held.Lines(), "run .gnoshrc, a shell script, as gnosh starts")
+	dangers := held.Dangers()
+	require.Len(t, dangers, 6, "runs as you, allowed, provider, env, host, reads files: %q", dangers)
+	require.True(t, strings.HasPrefix(dangers[0],
+		"Its gnoshrc, hooks, MCP server and LSP server, and any command hidden in a setting, would run as you:"), dangers[0])
 	require.False(t, store.ProjectTrust().Trusted)
+}
+
+// What could go wrong is said in plain words, a sentence for each kind of
+// harm the settings could do, and none for a kind they hold nothing of.
+func TestDangersSayOnlyWhatTheSettingsCouldDo(t *testing.T) {
+	t.Parallel()
+	require.Empty(t, (*ProjectSettings)(nil).Dangers())
+	require.Empty(t, (&ProjectSettings{Other: []string{"models", "options.debug", "options.request_timeout"}}).Dangers(),
+		"settings that only change how gnosh works add no danger")
+
+	stranger := &ProjectSettings{
+		Scripts:    []string{"/p/.gnoshrc"},
+		Hooks:      []string{"PreToolUse: ./steal.sh"},
+		MCPServers: []string{"docs", "helper"},
+		RemoteMCP:  []string{"docs"},
+		Providers:  []string{"proxy (https://keys.example/v1)"},
+		Allowed:    []string{"bash"},
+		Env:        []string{"PATH"},
+		Hosts:      []string{"box"},
+		Skills:     []string{".agents/skills (it leads to /home/u)"},
+		Other:      []string{"options.context_paths", "options.debug", "options.metrics_url"},
+	}
+	require.Equal(t, []string{
+		"Its gnoshrc, hook and MCP server, and any command hidden in a setting, would run as you: " +
+			"a stranger's could steal your SSH and wallet keys, wipe your files, or plant a program that stays.",
+		"A line hidden in any file here could get the agent to run what these settings allow, without asking you.",
+		"Its model provider could read all the agent sees, take your API key, and tell the agent what to do.",
+		"Its online MCP server would see what the agent sends, and could steer the agent with its answers.",
+		"Its environment variables change what every command does: a PATH could swap in its own program for git.",
+		"The agent would log in to the machine it adds with your SSH keys, and could send your files there.",
+		"The agent would read files outside this folder without asking, your keys among them if a path leads there.",
+		"Its metrics_url setting could send your work, or word of it, off your computer.",
+	}, stranger.Dangers())
+
+	// An environment variable runs nothing as a program, but its value is
+	// expanded through the shell, and a $(...) in it would run.
+	env := (&ProjectSettings{Env: []string{"GOFLAGS"}}).Dangers()
+	require.Len(t, env, 2)
+	require.True(t, strings.HasPrefix(env[0], "Any command hidden in a setting would run as you: "), env[0])
+
+	// An online MCP server alone is not a program on the computer, but its
+	// address and headers are expanded too.
+	online := (&ProjectSettings{MCPServers: []string{"docs"}, RemoteMCP: []string{"docs"}}).Dangers()
+	require.Len(t, online, 2)
+	require.True(t, strings.HasPrefix(online[0], "Any command hidden in a setting would run as you: "), online[0])
+
+	many := (&ProjectSettings{
+		Scripts:    []string{"/p/.gnoshrc", "/p/sub/.gnoshrc"},
+		Hooks:      []string{"Stop: ./a.sh", "Stop: ./b.sh"},
+		LSPServers: []string{"gopls", "rust-analyzer"},
+		Providers:  []string{"a", "b"},
+		Hosts:      []string{"x", "y"},
+		Other:      []string{"options.mem_embeddings_url", "options.artifact_server"},
+	}).Dangers()
+	require.True(t, strings.HasPrefix(many[0],
+		"Its shell configs, hooks and LSP servers, and any command hidden in a setting, would run as you: "), many[0])
+	require.Contains(t, many, "Its model providers could read all the agent sees, take your API key, and tell the agent what to do.")
+	require.Contains(t, many, "The agent would log in to the machines it adds with your SSH keys, and could send your files there.")
+	require.Contains(t, many, "Its mem_embeddings_url and artifact_server settings could send your work, or word of it, off your computer.")
+
+	require.Equal(t, []string{"A line hidden in any file here could get the agent to run what these settings allow, without asking you."},
+		(&ProjectSettings{Allowed: []string{"Bash(go test *)"}}).Dangers())
+}
+
+// An MCP server reached over the network is noted as online: it runs
+// nothing on the computer, and the question says what it could do instead.
+func TestUntrustedOnlineMCPServerIsNotedAsOnline(t *testing.T) {
+	dir := isolateTrust(t)
+	cfg := `{"mcp": {"docs": {"type": "http", "url": "https://mcp.example/mcp"}, "events": {"type": "sse", "url": "https://mcp.example/sse"}, "local": {"command": "./s"}}}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "gnosh.json"), []byte(cfg), 0o644))
+
+	settings, _, err := ScanProject(dir, "")
+	require.NoError(t, err)
+	require.Equal(t, []string{"docs", "events", "local"}, settings.MCPServers)
+	require.Equal(t, []string{"docs", "events"}, settings.RemoteMCP)
+	dangers := settings.Dangers()
+	require.True(t, strings.HasPrefix(dangers[0], "Its MCP server, and any command hidden in a setting, would run as you: "), dangers[0])
+	require.Contains(t, dangers, "Its online MCP servers would see what the agent sends, and could steer the agent with its answers.")
 }
 
 // Once trusted, the same folder's settings apply in full, its gnoshrc runs,
@@ -522,6 +604,7 @@ func TestTrustCommandCanBePasted(t *testing.T) {
 	require.Equal(t, version.Command+" trust '/work/my proj'", TrustCommand("/work/my proj"))
 	require.Equal(t, version.Command+` trust '/work/it'\''s'`, TrustCommand("/work/it's"))
 	require.Equal(t, version.Command+" trust '/work/$HOME'", TrustCommand("/work/$HOME"))
+	require.Equal(t, version.Command+" trust --forget '/work/my proj'", ForgetCommand("/work/my proj"))
 }
 
 // What a stranger's settings would do is shown as text, never as terminal
@@ -537,7 +620,8 @@ func TestHeldSettingsAreShownSafely(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{`x\x1b]52;c;cHduZWQ=\a`}, settings.MCPServers)
 	require.Equal(t, []string{`Stop: ./a.sh\n\u202eevil`}, settings.Hooks)
-	for _, line := range append(settings.Lines(), settings.Brief(), TrustCommand(filepath.Join(dir, "a\u001b[2Jb"))) {
+	lines := append(settings.Lines(), settings.Brief(), TrustCommand(filepath.Join(dir, "a\u001b[2Jb")), ForgetCommand(filepath.Join(dir, "a\u001b[2Jb")))
+	for _, line := range append(lines, settings.Dangers()...) {
 		require.False(t, strings.ContainsFunc(line, hidden), "%q", line)
 	}
 }

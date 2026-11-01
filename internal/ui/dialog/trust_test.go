@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/styles"
@@ -57,6 +58,48 @@ func TestTrustDialogListsWhatTheSettingsWouldDo(t *testing.T) {
 	}
 }
 
+// Below what the settings would do, the question says in plain words what
+// could go wrong: only the harms these settings could do, the gnoshrc,
+// hook and server that would run as the user first.
+func TestTrustDialogSaysWhatCouldGoWrong(t *testing.T) {
+	t.Parallel()
+	scr := uv.NewScreenBuffer(100, 40)
+	newTestTrust(strangerSettings()).Draw(scr, image.Rect(0, 0, 100, 40))
+	text := screenText(scr)
+	require.Less(t, strings.Index(text, "Its project settings would:"), strings.Index(text, "What could go wrong:"))
+	require.Less(t, strings.Index(text, "What could go wrong:"), strings.Index(text, "No, use my own settings"))
+	flat := strings.Join(strings.Fields(strings.NewReplacer("│", " ", "•", " ").Replace(text)), " ")
+	for _, danger := range strangerSettings().Dangers() {
+		require.Contains(t, flat, danger)
+	}
+	require.Contains(t, flat, "steal your SSH and wallet keys")
+	require.Contains(t, flat, "take your API key")
+	require.NotContains(t, flat, "log in to the machine", "a harm the settings could not do is not listed")
+}
+
+// Every line of the question stays inside the dialog: a bullet is wrapped
+// to the room the dialog has, bullet and padding counted, so no line is
+// wrapped a second time with a word left on a line of its own.
+func TestTrustDialogWrapsInsideItsBorder(t *testing.T) {
+	t.Parallel()
+	d := newTestTrust(strangerSettings())
+	for _, width := range []int{30, 56, 76} {
+		for _, b := range d.bullets(append(strangerSettings().Lines(), strangerSettings().Dangers()...), width) {
+			for _, line := range strings.Split(b, "\n") {
+				require.LessOrEqual(t, lipgloss.Width(line), width, "%q", line)
+			}
+		}
+	}
+	for _, width := range []int{60, 80, 100} {
+		scr := uv.NewScreenBuffer(width, 50)
+		newTestTrust(strangerSettings()).Draw(scr, image.Rect(0, 0, width, 50))
+		flat := strings.Join(strings.Fields(strings.NewReplacer("│", " ", "•", " ").Replace(screenText(scr))), " ")
+		for _, danger := range strangerSettings().Dangers() {
+			require.Contains(t, flat, danger, "width %d", width)
+		}
+	}
+}
+
 // y trusts, n and esc do not, ctrl+c quits, and enter takes the selected
 // answer, which is No until another is chosen.
 func TestTrustDialogKeys(t *testing.T) {
@@ -103,4 +146,23 @@ func TestTrustDialogFitsASmallScreen(t *testing.T) {
 	text := screenText(scr)
 	require.Contains(t, text, "more")
 	require.Contains(t, text, "No, use my own settings")
+	require.Contains(t, text, "What could go wrong:", "what could go wrong keeps its place before the long list")
+	require.Contains(t, text, "would run as you")
+}
+
+// How the lines are shared out when they do not all fit: what could go
+// wrong first, the list keeping a bullet and its count, and on a screen
+// too small for the heading and a line, the list alone.
+func TestTrustDialogShareHeight(t *testing.T) {
+	t.Parallel()
+	does, dangers := shareHeight(20, 5, 9)
+	require.Equal(t, [2]int{5, 9}, [2]int{does, dangers}, "both fit")
+	does, dangers = shareHeight(10, 30, 9)
+	require.Equal(t, [2]int{2, 8}, [2]int{does, dangers})
+	does, dangers = shareHeight(10, 1, 12)
+	require.Equal(t, [2]int{1, 9}, [2]int{does, dangers})
+	does, dangers = shareHeight(4, 30, 9)
+	require.Equal(t, [2]int{4, 0}, [2]int{does, dangers}, "no room for the heading and a line")
+	does, dangers = shareHeight(10, 30, 0)
+	require.Equal(t, [2]int{10, 0}, [2]int{does, dangers}, "nothing could go wrong")
 }

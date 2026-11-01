@@ -137,6 +137,10 @@ func TestTrustCommand(t *testing.T) {
 	require.Contains(t, out, "Trusted ")
 	require.Contains(t, out, "  - run .gnoshrc, a shell script, as gnosh starts\n")
 	require.Contains(t, out, "  - start 1 MCP server: helper\n")
+	require.Contains(t, out, "What could go wrong:\n  - Its gnoshrc and MCP server would run as you: ")
+	real, err := filepath.EvalSymlinks(proj)
+	require.NoError(t, err)
+	require.Contains(t, out, "If you did not write them and have not read them: "+config.ForgetCommand(real)+"\n")
 	require.True(t, config.FolderTrusted(proj))
 
 	out, err = runTrust(t, "--list")

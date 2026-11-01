@@ -31,10 +31,11 @@ type ActionTrustFolder struct {
 }
 
 // Trust asks, before a session starts in a folder whose project settings
-// are not trusted yet, whether to use them, and lists what they would do:
-// the shell config that would run, the hooks, the MCP and LSP servers, the
-// tools let run without asking and the rest. No is selected at first, so
-// a hurried enter keeps the folder's settings off.
+// are not trusted yet, whether to use them. It lists what they would do
+// (the shell config that would run, the hooks, the MCP and LSP servers, the
+// tools let run without asking and the rest) and then, in plain words, what
+// could go wrong if whoever wrote them meant harm. No is selected at first,
+// so a hurried enter keeps the folder's settings off.
 type Trust struct {
 	com        *common.Common
 	settings   *config.ProjectSettings
@@ -153,10 +154,42 @@ func (d *Trust) View(width, height int) string {
 
 	fixed := lipgloss.Height(strings.Join(head, "\n")) + lipgloss.Height(strings.Join(tail, "\n")) +
 		dialogStyle.GetVerticalFrameSize()
-	list := d.renderList(contentWidth, height-fixed)
+	does := d.bullets(s.Lines(), contentWidth)
+	dangers := d.bullets(s.Dangers(), contentWidth)
+	dangersHeight := 0
+	if len(dangers) > 0 {
+		dangersHeight = len(dangersHead) + bulletsHeight(dangers)
+	}
+	listMax, dangersMax := shareHeight(height-fixed, bulletsHeight(does), dangersHeight)
 
-	parts := append(append(head, list), tail...)
+	parts := append(head, d.fit(does, listMax))
+	if dangersMax > 0 {
+		heading := t.Dialog.PrimaryText.Foreground(t.Dialog.TitleError.GetForeground()).Bold(true)
+		parts = append(parts, dangersHead[0], heading.Render(dangersHead[1]), d.fit(dangers, dangersMax-len(dangersHead)))
+	}
+	parts = append(parts, tail...)
 	return dialogStyle.Render(lipgloss.JoinVertical(lipgloss.Left, parts...))
+}
+
+// dangersHead are the lines above the dangers: a blank one and the
+// heading.
+var dangersHead = [2]string{"", "What could go wrong:"}
+
+// shareHeight splits avail lines between what the settings would do, which
+// wants does lines, and what could go wrong, which wants dangers: each all
+// it wants when both fit, and otherwise what could go wrong first, while
+// the list keeps two lines (a bullet and the count of the rest), since the
+// first danger names what would run. On a screen with no room for the
+// heading and a line under it, what could go wrong gets none (0).
+func shareHeight(avail, does, dangers int) (doesMax, dangersMax int) {
+	if does+dangers <= avail {
+		return does, dangers
+	}
+	dangersMax = min(dangers, avail-min(does, 2))
+	if dangersMax < len(dangersHead)+1 {
+		return max(1, avail), 0
+	}
+	return max(1, avail-dangersMax), dangersMax
 }
 
 // folderLine names the folder and says what kind it is.
@@ -172,15 +205,14 @@ func (d *Trust) folderLine() string {
 	return line
 }
 
-// renderList renders what the settings would do, a bullet each, in at most
-// maxHeight lines; what does not fit is counted on a last line.
-func (d *Trust) renderList(width, maxHeight int) string {
-	t := d.com.Styles
-	style := t.Dialog.PrimaryText
-	lines := d.settings.Lines()
+// bullets renders lines as bullets, each wrapped to fit in width.
+func (d *Trust) bullets(lines []string, width int) []string {
+	style := d.com.Styles.Dialog.PrimaryText
+	// The bullet takes two cells, and the style pads a cell each side.
+	wrapAt := max(1, width-2-style.GetHorizontalFrameSize())
 	var bullets []string
 	for _, line := range lines {
-		wrapped := strings.Split(ansi.Wrap(line, max(1, width-2), ""), "\n")
+		wrapped := strings.Split(ansi.Wrap(line, wrapAt, ""), "\n")
 		for i := range wrapped {
 			prefix := "  "
 			if i == 0 {
@@ -190,6 +222,22 @@ func (d *Trust) renderList(width, maxHeight int) string {
 		}
 		bullets = append(bullets, strings.Join(wrapped, "\n"))
 	}
+	return bullets
+}
+
+// bulletsHeight is how many lines bullets take.
+func bulletsHeight(bullets []string) int {
+	h := 0
+	for _, b := range bullets {
+		h += lipgloss.Height(b)
+	}
+	return h
+}
+
+// fit is bullets in at most maxHeight lines; what does not fit is counted
+// on a last line.
+func (d *Trust) fit(bullets []string, maxHeight int) string {
+	style := d.com.Styles.Dialog.PrimaryText
 	maxHeight = max(1, maxHeight)
 	var shown []string
 	used := 0

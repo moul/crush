@@ -115,6 +115,9 @@ type ProjectSettings struct {
 	// MCPServers and LSPServers are the servers it would start or set up.
 	MCPServers []string
 	LSPServers []string
+	// RemoteMCP are those of MCPServers reached over the network (sse or
+	// http) rather than started as a program.
+	RemoteMCP []string
 	// Providers are the model providers it sets, with their base_url.
 	Providers []string
 	// Allowed are the tools and Bash rules it lets run without asking.
@@ -218,6 +221,124 @@ func (p *ProjectSettings) Brief() string {
 	return strings.Join(parts, "; ")
 }
 
+// Dangers says how the settings could hurt the user if whoever wrote them
+// meant harm, in plain words: a sentence for each kind of harm they could
+// do, and none for a kind they hold nothing of, for the trust question and
+// gnosh trust. Settings that only change how gnosh works (a model, a
+// timeout, the look) add none.
+func (p *ProjectSettings) Dangers() []string {
+	if p == nil {
+		return nil
+	}
+	var dangers []string
+	if runs := p.runsAsYou(); runs != "" {
+		dangers = append(dangers, runs+" would run as you: a stranger's could steal your SSH and wallet keys, "+
+			"wipe your files, or plant a program that stays.")
+	}
+	if len(p.Allowed) > 0 {
+		dangers = append(dangers, "A line hidden in any file here could get the agent to run what these settings allow, "+
+			"without asking you.")
+	}
+	if n := len(p.Providers); n > 0 {
+		dangers = append(dangers, "Its "+nounFor(n, "model provider")+" could read all the agent sees, take your API key, "+
+			"and tell the agent what to do.")
+	}
+	if n := len(p.RemoteMCP); n > 0 {
+		dangers = append(dangers, "Its online "+nounFor(n, "MCP server")+" would see what the agent sends, "+
+			"and could steer the agent with its answers.")
+	}
+	if len(p.Env) > 0 {
+		dangers = append(dangers, "Its environment variables change what every command does: "+
+			"a PATH could swap in its own program for git.")
+	}
+	if n := len(p.Hosts); n > 0 {
+		dangers = append(dangers, "The agent would log in to the "+nounFor(n, "machine")+" it adds with your SSH keys, "+
+			"and could send your files there.")
+	}
+	if len(p.Skills) > 0 || len(p.otherOf(readsFiles)) > 0 {
+		dangers = append(dangers, "The agent would read files outside this folder without asking, "+
+			"your keys among them if a path leads there.")
+	}
+	if send := p.otherOf(sendsOut); len(send) > 0 {
+		dangers = append(dangers, "Its "+joinAnd(send)+" "+nounFor(len(send), "setting")+
+			" could send your work, or word of it, off your computer.")
+	}
+	return dangers
+}
+
+// readsFiles are the options that have the agent read files without
+// asking, from anywhere a path leads; sendsOut are those that send the
+// user's work, or word of it, off the computer.
+var (
+	readsFiles = []string{"options.context_paths", "options.global_context_paths", "options.skills_paths"}
+	sendsOut   = []string{"options.metrics_url", "options.mem_embeddings_url", "options.artifact_server"}
+)
+
+// otherOf are those of the other settings that options names, by their
+// own name, without the "options." before it.
+func (p *ProjectSettings) otherOf(options []string) []string {
+	var names []string
+	for _, key := range p.Other {
+		if slices.Contains(options, key) {
+			names = append(names, strings.TrimPrefix(key, "options."))
+		}
+	}
+	return names
+}
+
+// runsAsYou names what of the settings would run as a program on the
+// user's computer, for Dangers: its shell configs, hooks and servers, and
+// a command hidden in a value, for gnosh expands a provider's key, address
+// and headers, an environment variable and an online MCP server's address
+// and headers through the shell as it reads them, $(...) and all. "" when
+// nothing would.
+func (p *ProjectSettings) runsAsYou() string {
+	var programs []string
+	switch len(p.Scripts) {
+	case 0:
+	case 1:
+		programs = append(programs, "gnoshrc")
+	default:
+		programs = append(programs, "shell configs")
+	}
+	if n := len(p.Hooks); n > 0 {
+		programs = append(programs, nounFor(n, "hook"))
+	}
+	if n := len(p.MCPServers) - len(p.RemoteMCP); n > 0 {
+		programs = append(programs, nounFor(n, "MCP server"))
+	}
+	if n := len(p.LSPServers); n > 0 {
+		programs = append(programs, nounFor(n, "LSP server"))
+	}
+	hidden := len(p.Providers)+len(p.Env)+len(p.RemoteMCP) > 0
+	switch {
+	case len(programs) > 0 && hidden:
+		return "Its " + joinAnd(programs) + ", and any command hidden in a setting,"
+	case len(programs) > 0:
+		return "Its " + joinAnd(programs)
+	case hidden:
+		return "Any command hidden in a setting"
+	}
+	return ""
+}
+
+// nounFor is noun with an s when n is not 1.
+func nounFor(n int, noun string) string {
+	if n == 1 {
+		return noun
+	}
+	return noun + "s"
+}
+
+// joinAnd joins items as a list in a sentence: "a", "a and b", "a, b and
+// c".
+func joinAnd(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
+}
+
 // name is path as the user knows it: from the directory gnosh started in
 // when it is at or under it, and otherwise in full; made safe to show.
 func (p *ProjectSettings) name(path string) string {
@@ -265,10 +386,7 @@ func ShowPath(path string) string {
 
 // plural is n and noun, with an s when n is not 1.
 func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
+	return strconv.Itoa(n) + " " + nounFor(n, noun)
 }
 
 // split returns what of data, the JSON config at path, an untrusted folder
@@ -340,8 +458,13 @@ func (p *ProjectSettings) note(cfg *Config) bool {
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.MCP)) {
-		if !cfg.MCP[name].Disabled {
-			add(&p.MCPServers, name)
+		m := cfg.MCP[name]
+		if m.Disabled {
+			continue
+		}
+		add(&p.MCPServers, name)
+		if m.Type == MCPSSE || m.Type == MCPHttp {
+			add(&p.RemoteMCP, name)
 		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(cfg.LSP)) {
@@ -621,6 +744,12 @@ func TrustFile() string {
 // takes it as it is and quoted in full where it would not.
 func TrustCommand(folder string) string {
 	return Shown(version.Command + " trust " + shellPath(folder))
+}
+
+// ForgetCommand is the command that stops trusting folder, shown as
+// TrustCommand shows its own.
+func ForgetCommand(folder string) string {
+	return Shown(version.Command + " trust --forget " + shellPath(folder))
 }
 
 // shellPath is path as it can be typed into a shell.

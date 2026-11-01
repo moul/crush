@@ -93,6 +93,13 @@ gnosh trust --forget ~/src/myproject
 		for _, line := range settings.Lines() {
 			fmt.Fprintln(out, "  - "+line)
 		}
+		if dangers := settings.Dangers(); len(dangers) > 0 {
+			fmt.Fprintln(out, "What could go wrong:")
+			for _, line := range dangers {
+				fmt.Fprintln(out, "  - "+line)
+			}
+		}
+		fmt.Fprintf(out, "If you did not write them and have not read them: %s\n", config.ForgetCommand(folder))
 		return nil
 	},
 }

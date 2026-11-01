@@ -430,16 +430,25 @@ mem's text and the prompts you type go to that server alone.
 A project's own settings can run code. Its `gnoshrc` is a shell script that
 runs as Gnosh starts, and its `gnosh.json` can add hooks, start MCP and LSP
 servers, let tools run without asking, and point a provider's `base_url`, with
-your API key, at someone else's server. Upstream Crush used them all the
-moment it started, so starting it in a repository you had just cloned ran the
-stranger's code with your permissions.
+your API key, at someone else's server. Even a plain-looking value can run
+code: Gnosh expands an `env` value, a provider's key and address and an MCP
+server's address through the shell as it reads them, so a `$(...)` in one
+runs then. Upstream Crush used them all the moment it started, so starting it
+in a repository you had just cloned ran the stranger's code with your
+permissions.
 
 Gnosh asks first, as Claude Code does. The first time you start it in a folder
 whose settings would do any of that, it asks "Do you trust the files in this
 folder?", names the folder and lists what its settings would do: the
 `gnoshrc` that would run, each hook, the servers, the tools let run without
-asking, the providers. Yes remembers the folder. No starts the session with
-your own settings only, and Gnosh asks again next time.
+asking, the providers. Under that it says in plain words what could go wrong
+if whoever wrote them meant harm, naming only the harms these settings could
+do: that the code would run as you and could steal your SSH and wallet keys,
+wipe your files or plant a program that stays; that a line hidden in a file
+could get the agent to run what the settings allow without asking you; that
+their model provider would see all the agent reads and could take your API
+key. Yes remembers the folder. No starts the session with your own settings
+only, and Gnosh asks again next time.
 
 Until you say yes:
 
