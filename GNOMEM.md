@@ -220,6 +220,51 @@ has ended. So a todo entered in one session stays open, even with every todo
 under it done in later sessions, until that session is resumed: in real runs
 on 31 October, the README's task and long-goal-sessions both ended that way.
 
+### Many sessions, one plan
+
+Several sessions can work one plan in mem at once, each in its own gnosh
+process. Each call to mem is a transaction under mem's one lock: it takes
+the lock, brings mem up to its journal, runs, keeps what it changed, and
+lets go. So when two sessions ask `mem.Next()` at once, they get different
+todos. Whatever waits, waits in the kernel or on a wake-up, never on a timer:
+
+- the lock is waited for with a blocking `flock`, woken by its release;
+- a `mem.Next()` that has nothing for its session while other sessions are
+  working on what it will need (a todo whose todos they are doing, or the
+  pop of the frame it stands in) sleeps on a pipe of its own that every
+  change to mem rings, and on the other sessions' turns ending, then asks
+  again. One wait costs no CPU and no model tokens: the call simply returns
+  later, with a line for the wait and what the others found.
+
+Todos stay in order: one waits for the ones before it that another session
+is working on. `mem.Todo("build the shapes").Parallel()` says the todos
+under it may be done at once, in any order, by any session; what must
+follow them, the check or the merge, is that todo's own work, done before it
+is popped. Every rule that differs from one session's needs another session
+working now, so one session sees exactly the `mem.Next()` above.
+
+Only a bare `mem.Next()` ending the call waits, and a sub-agent's never
+does. A todo held by a session that is not working now (its turn ended, or
+its process died) is passed over, as it is for one session, and a wait
+that would wait forever, a loop of sessions waiting for each other, is
+refused. The design and its reviews are in PARALLEL.md.
+
+In the suite, real processes work one tree, twelve todos (three shapes of
+two parallel leaves each, then the build, then the notes, in order), with a
+sleep for each todo's work, 1 to 2.6 s for a leaf; every run ends with the
+same tree, checked from the journal:
+
+```text
+1 peer              13.1 s
+3 peers              7.0 s   1.87x   (their rule's own schedule: 6.9 s)
+8 peers              5.7 s   2.30x   (5.5 s; the tree's longest chain is 4.5 s)
+a planner + 3 peers  6.3 s   2.08x
+```
+
+A waiting peer whose holder works three seconds without a change re-runs
+nothing, and re-runs once when the change comes; one whose holder is killed
+wakes within two seconds.
+
 ### A knowledge base
 
 > **You:** Remember for later: our deploy command is make ship ENV=prod, and

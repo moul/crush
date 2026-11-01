@@ -168,6 +168,9 @@ type MemStep struct {
 // changed: first as a journal entry, which is the commit point, then in the
 // store. A failed input keeps nothing.
 func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
+	if err := h.b.warmMem(); err != nil {
+		return memResult{}, err
+	}
 	release, err := h.lock(ctx)
 	if err != nil {
 		return memResult{}, err

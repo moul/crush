@@ -92,16 +92,8 @@ var memPackages = []string{memLibPath, "fmt", "strings", "strconv", "sort", "mat
 
 // openMemRealm opens the mem in dir, deploying the realm into a new store.
 func openMemRealm(b *base, dir string) (*memRealm, error) {
-	if _, err := b.ensure(memPackages); err != nil {
+	if err := b.warmMem(); err != nil {
 		return nil, err
-	}
-	// A mem call's transaction reads the libraries' objects and types from
-	// gno's shared byte cache, not from the store it writes to. Filling it
-	// copies every library's bytes (about 100 ms), so it is done once: what
-	// mem runs on is loaded by now, and never changes.
-	if !b.memLibsCached {
-		b.store.PopulateStdlibCache(libraryPaths())
-		b.memLibsCached = true
 	}
 	db, err := goleveldb.NewGoLevelDB("mem", dir)
 	if err != nil {
@@ -120,6 +112,24 @@ func openMemRealm(b *base, dir string) (*memRealm, error) {
 }
 
 func (r *memRealm) close() error { return r.db.Close() }
+
+// warmMem loads what every mem call runs on into this process's base: the
+// libraries, compiled, and gno's shared byte cache of them (a mem call's
+// transaction reads the libraries' objects and types from that cache, not
+// from the store it writes to; filling it copies every library's bytes,
+// about 100 ms). It is done once per process and touches no mem on disk,
+// so a call does it before taking mem's lock: a new gnosh process pays for
+// it without holding up the others (PARALLEL.md).
+func (b *base) warmMem() error {
+	if _, err := b.ensure(memPackages); err != nil {
+		return err
+	}
+	if !b.memLibsCached {
+		b.store.PopulateStdlibCache(libraryPaths())
+		b.memLibsCached = true
+	}
+	return nil
+}
 
 // deploy runs the realm's package into the store when it is not there yet.
 func (r *memRealm) deploy() (err error) {

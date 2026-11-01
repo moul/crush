@@ -24,6 +24,9 @@ import (
 // then runs mem.Next() again, as a new call, until it steps in or has
 // nothing to wait for. The model gets one result.
 
+// waitRerun, in tests, counts the re-runs a wake causes.
+var waitRerun func()
+
 // mayWaitInput reports whether req is a mem input whose Next may wait: a
 // bare mem.Next() ends it, and it is not a sub-agent's.
 func mayWaitInput(req RunRequest) bool {
@@ -77,6 +80,9 @@ func (c *Client) runWaiting(ctx context.Context, req RunRequest) (*RunResult, er
 			return merged, nil
 		}
 		merged.Output += "waited " + roundWait(time.Since(start)) + " for " + waitsText(res.Waits) + "\n"
+		if waitRerun != nil {
+			waitRerun()
+		}
 		req = RunRequest{Project: req.Project, Session: req.Session, Name: MemVM, Code: "mem.Next()", Req: fmt.Sprintf("%s/next-%d", req.Req, n+1), Goal: req.Goal, Frames: stack}
 	}
 }
