@@ -288,3 +288,36 @@ y.Todo("tape")`, false)
 	require.Equal(t, "ship/pack", p3.top(), res.Output)
 	require.Contains(t, res.Output, "its todo `ship/pack/box` was done by session p1 → box ready")
 }
+
+// A session entering a todo while others work is told so; the hint after a
+// pop sends it to mem.Next(). A sub-agent, which works for its parent, is
+// told neither.
+func TestPeersToldOfPeers(t *testing.T) {
+	t.Parallel()
+	p := newPeersMem(t)
+	shapes(t, p)
+	p.working("p1", "sub")
+	p1 := p.peer("p1")
+	p1.run(`mem.Next()`, true)
+	sub := func(code string, stack []string) memResult {
+		t.Helper()
+		res, err := p.h.call(context.Background(), memRequest{Code: code, Session: "sub", Frames: stack, SubAgent: true, Run: true})
+		require.NoError(t, err, res.Output)
+		return res
+	}
+	res := sub(`mem.Next()`, nil)
+	stack := stackAfter(nil, res.Frames)
+	require.Equal(t, []string{"make-geom-pass-tests/circle/circle-perimeter"}, stack, res.Output)
+	require.NotContains(t, res.Output, "on this plan now", "a sub-agent is not told of peers")
+
+	res = p1.run(`mem.Pop("pi r squared")`, false)
+	require.Contains(t, res.Output, "next: mem.Next(), which says what is left for you while session sub works on this plan", "no todo named while another works")
+	res = sub(`mem.Pop("2 pi r")`, stack)
+	require.NotContains(t, res.Output, "which says what is left for you", "a sub-agent is not sent on")
+
+	p.working("p1", "p2")
+	p2 := p.peer("p2")
+	p2.run(`mem.Next()`, true)
+	res = p1.run(`mem.Next()`, true)
+	require.Contains(t, res.Output, "session p2 also works on this plan now: keep to this todo's files", res.Output)
+}

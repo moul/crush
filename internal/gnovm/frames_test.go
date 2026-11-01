@@ -39,7 +39,7 @@ func (s *framesStory) run(who, bound, code string) {
 	call, err := s.r.commitNext(s.r.call(code, memContext{caller: who, bound: bound, stack: stack, holding: s.holding}))
 	out := call.Output
 	if err == nil {
-		if hint := nextHint(s.r, who, bound, stack, call.Frames, call.NilPush, nil); hint != "" {
+		if hint := nextHint(s.r, who, bound, stack, call.Frames, call.NilPush, nil, false); hint != "" {
 			out += hint + "\n"
 		}
 		s.stacks[who] = stackAfter(stack, call.Frames)

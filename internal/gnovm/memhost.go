@@ -201,7 +201,7 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 	mayWait := q.MayWait || q.Pipe != "" && !q.SubAgent && who == "agent" && endsWithBareNext(q.Code) && h.pendingPipe(q.Pipe)
 	mc := memContext{
 		caller: caller, bound: q.Goal, stack: q.Frames, names: q.Names, find: h.finder(ctx, x, j), holding: h.holding(j), limit: memLimit{ctx: ctx},
-		working: h.workingFor(), mayWait: mayWait,
+		working: h.workingFor(), mayWait: mayWait, subAgent: q.SubAgent,
 	}
 	call, err := r.call(q.Code, mc)
 	res := memResult{Output: call.Output, Ops: call.Ops, Frames: call.Frames, Notes: notes, Instance: j.instance}
@@ -245,7 +245,7 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 	}
 	h.writeStatus(r, j)
 	res.Goals = h.touched(r, caller, call.Ops, mc.working)
-	if hint := nextHint(r, caller, q.Goal, q.Frames, call.Frames, call.NilPush, mc.working); hint != "" {
+	if hint := nextHint(r, caller, q.Goal, q.Frames, call.Frames, call.NilPush, mc.working, q.SubAgent); hint != "" {
 		res.Output += hint + "\n"
 	}
 	h.afterCall(r, q, mc, call, &res, true)
@@ -257,12 +257,12 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 // next, with the stack as it stands after the call (FRAMES.md), and who is
 // working (PARALLEL.md). "" when the call ended with no pop, or the hint
 // cannot be read.
-func nextHint(r *memRealm, caller, bound string, stack []string, events []MemFrame, nilPush int, working func(session, id string) bool) string {
+func nextHint(r *memRealm, caller, bound string, stack []string, events []MemFrame, nilPush int, working func(session, id string) bool, subAgent bool) string {
 	if len(events) == 0 || events[len(events)-1].Kind != "pop" || nilPush == len(events) {
 		return ""
 	}
 	last := events[len(events)-1]
-	call, err := r.call("print(mem.NextHint("+strconv.Quote(last.Id)+"))", memContext{caller: caller, bound: bound, stack: stackAfter(stack, events), working: working})
+	call, err := r.call("print(mem.NextHint("+strconv.Quote(last.Id)+"))", memContext{caller: caller, bound: bound, stack: stackAfter(stack, events), working: working, subAgent: subAgent})
 	if err != nil {
 		slog.Warn("mem's next hint could not be read", "error", err)
 		return ""
@@ -894,6 +894,13 @@ func (h *Host) runMem(ctx context.Context, req RunRequest) (*RunResult, error) {
 	out := &RunResult{VM: MemVM, Output: res.Output, Journaled: res.Seq > 0, Seq: res.Seq, Notes: res.Notes, Wall: time.Since(start), MemGoals: res.Goals, Erased: res.Erased, Frames: res.Frames, Waits: res.Waits}
 	if res.Seq > 0 {
 		out.Rules = memRules(res.Ops)
+	}
+	if err != nil && res.Seq > 0 {
+		// The journal, mem's commit point, kept the call; only its store or
+		// index lags, and the next call catches them up from the journal.
+		// What it pushed and popped stands, so it is no error.
+		out.Notes = append(out.Notes, "mem kept this call, but writing its store or index failed ("+err.Error()+"): the next call catches them up from the journal")
+		return out, nil
 	}
 	if err != nil {
 		var busy *busyError

@@ -61,6 +61,9 @@ type memContext struct {
 	working func(session, id string) bool
 	mayWait bool
 	waits   *[]MemWait
+	// subAgent is set for a sub-agent's session: it is not told of peers
+	// or sent on to other todos, since it works for its parent.
+	subAgent bool
 }
 
 // memOp is one change to a mem, as gnomem's do hands it to gnosh and the
@@ -78,7 +81,7 @@ type memOp struct {
 var memNativeGas = gno.NativeGasInfo{Base: 1000, SlopeIdx: -1, SlopeKind: gno.SizeFlat}
 
 func init() {
-	for _, name := range []gno.Name{"caller", "today", "bound", "frames", "pushed", "popped", "nameMade", "record", "pending", "find", "holding", "working", "mayWait", "waitOn", "quote", "jsonString"} {
+	for _, name := range []gno.Name{"caller", "today", "bound", "frames", "pushed", "popped", "nameMade", "record", "pending", "find", "holding", "working", "mayWait", "waitOn", "subAgent", "quote", "jsonString"} {
 		info := memNativeGas
 		gno.RegisterNativeGas(memLibPath, name, &info)
 	}
@@ -165,6 +168,10 @@ func memNative(name gno.Name) func(*gno.Machine) {
 	case "mayWait":
 		return func(m *gno.Machine) {
 			memPush(m, memCallContext(m, "mayWait").mayWait)
+		}
+	case "subAgent":
+		return func(m *gno.Machine) {
+			memPush(m, memCallContext(m, "subAgent").subAgent)
 		}
 	case "waitOn":
 		return func(m *gno.Machine) {

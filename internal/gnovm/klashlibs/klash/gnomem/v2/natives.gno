@@ -75,6 +75,10 @@ func mayWait() bool
 // holds.
 func waitOn(id, session string)
 
+// subAgent reports whether this input's session is a sub-agent's, which
+// works for its parent and never waits.
+func subAgent() bool
+
 // Two that only format, in Go, since a character at a time is slow in Gno;
 // they answer anywhere.
 

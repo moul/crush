@@ -427,13 +427,17 @@ func (m *Mem) push(id, thought string) {
 	if others := m.doneByOthers(id, me); others != "" {
 		print(others)
 	}
-	if w := m.workers(taskOf(id), me); w != "" {
-		verb := " also works"
-		if strings.Contains(w, " and ") {
-			verb = " also work"
-		}
-		println(w + verb + " on this plan now: keep to this todo's files, and take the next todo with mem.Next().")
+	if w := m.workers(taskOf(id), me); w != "" && !subAgent() {
+		println(w + oneOrMany(w, " also works", " also work") + " on this plan now: keep to this todo's files, and take the next todo with mem.Next().")
 	}
+}
+
+// oneOrMany is one or many, for a list joinList made.
+func oneOrMany(list, one, many string) string {
+	if strings.Contains(list, " and ") {
+		return many
+	}
+	return one
 }
 
 // taskOf is the top-level todo id is under, or id itself.
@@ -709,16 +713,23 @@ func (m *Mem) NextHint(id string) string {
 	}
 	present := m.present()
 	// With other sessions working on the plan, only Next knows what is
-	// left for this one: a free todo, here or (at the root) elsewhere, or a
-	// wait for theirs; never a name to push, which another may take.
-	anchor := parent
-	if present == "" {
-		if n := m.newestOpen(); n != "" {
-			anchor = n
+	// left for this one, here or where it steps from; never a name to push,
+	// which another may take. A sub-agent works for its parent and is not
+	// sent on.
+	if !subAgent() {
+		w := m.workers(parent, caller())
+		if w == "" {
+			from := present
+			if from == "" {
+				from = m.newestOpen()
+			}
+			if from != "" {
+				w = m.workers(from, caller())
+			}
 		}
-	}
-	if w := m.workers(anchor, caller()); w != "" {
-		return "next: mem.Next(), which steps into a free todo, or waits for " + w
+		if w != "" {
+			return "next: mem.Next(), which says what is left for you while " + w + oneOrMany(w, " works", " work") + " on this plan"
+		}
 	}
 	if nt := m.nextTodo(parent); nt != nil {
 		if parent == present || present == "" && m.nextAtRoot() == nt.Id {
