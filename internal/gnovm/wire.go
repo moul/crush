@@ -54,6 +54,10 @@ type frame struct {
 	// Progress counts heartbeats within a request, so a stuck worker and
 	// a slow one look different in the log.
 	Progress uint64 `json:"progress,omitempty"`
+	// Waiting marks a heartbeat sent while the request waits for mem's
+	// lock, which another gnosh process holds: the client starts the
+	// request's deadline again when the wait ends.
+	Waiting bool `json:"waiting,omitempty"`
 }
 
 // hello is the handshake, both ways: the worker answers with its own, and
@@ -115,6 +119,7 @@ func readFrame(r io.Reader) (*frame, error) {
 type wireError struct {
 	Kind  string     `json:"kind"`
 	Msg   string     `json:"msg"`
+	Again bool       `json:"again,omitempty"`
 	Limit string     `json:"limit,omitempty"`
 	Stack string     `json:"stack,omitempty"`
 	Inner *wireError `json:"inner,omitempty"`
@@ -140,7 +145,7 @@ func toWire(err error) *wireError {
 	case errors.As(err, &ref):
 		return &wireError{Kind: "refusal", Msg: ref.msg}
 	case errors.As(err, &busy):
-		return &wireError{Kind: "busy", Msg: busy.msg}
+		return &wireError{Kind: "busy", Msg: busy.msg, Again: busy.again}
 	case errors.As(err, &perr):
 		return &wireError{Kind: "parse", Msg: perr.err.Error()}
 	case errors.As(err, &lim):
@@ -165,7 +170,7 @@ func fromWire(w *wireError) error {
 	case "refusal":
 		return &refusal{w.Msg}
 	case "busy":
-		return &busyError{w.Msg}
+		return &busyError{msg: w.Msg, again: w.Again}
 	case "parse":
 		return &parseError{errors.New(w.Msg)}
 	case "limit":

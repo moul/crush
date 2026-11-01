@@ -17,6 +17,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/crush/internal/version"
@@ -127,7 +128,9 @@ func serve(in io.Reader, out io.Writer, setup func(hello)) error {
 			running, cancel = f.ID, c
 			mu.Unlock()
 
-			stop := w.heartbeats(f.ID)
+			var waiting atomic.Bool
+			ctx = withLockWaiting(ctx, &waiting)
+			stop := w.heartbeats(f.ID, &waiting)
 			reply := handle(ctx, host, f)
 			stop()
 			c()
@@ -287,8 +290,8 @@ func (o *workerOut) send(f *frame) error {
 // heartbeats sends a heartbeat for request id every heartbeatEvery until the
 // returned stop is called. They come from their own goroutine, so a long
 // metered run, a replay or a base load all keep the client from taking the
-// worker for stuck.
-func (o *workerOut) heartbeats(id uint64) (stop func()) {
+// worker for stuck; each says whether the request waits for mem's lock.
+func (o *workerOut) heartbeats(id uint64, waiting *atomic.Bool) (stop func()) {
 	quit := make(chan struct{})
 	stopped := make(chan struct{})
 	go func() {
@@ -302,7 +305,7 @@ func (o *workerOut) heartbeats(id uint64) (stop func()) {
 				return
 			case <-t.C:
 				n++
-				if o.send(&frame{ID: id, Type: msgHeartbeat, Progress: n}) != nil {
+				if o.send(&frame{ID: id, Type: msgHeartbeat, Progress: n, Waiting: waiting.Load()}) != nil {
 					return
 				}
 			}

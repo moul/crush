@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -216,12 +217,66 @@ func TestWorkerKillVerdict(t *testing.T) {
 func TestWireErrors(t *testing.T) {
 	t.Parallel()
 	for _, err := range []error{
-		&refusal{"r"}, &busyError{"b"}, &parseError{errors.New("p")}, &limitError{kind: "memory"},
+		&refusal{"r"}, &busyError{msg: "b"}, &busyError{msg: "c", again: true}, &parseError{errors.New("p")}, &limitError{kind: "memory"},
 		&compileError{"c"}, &panicked{"x"}, &brokenError{vm: "v", cause: errBrokenJournal},
 		&runError{err: &panicked{"y"}, stack: "at main"},
 	} {
 		got := fromWire(toWire(err))
 		require.IsType(t, err, got)
 		require.Equal(t, err.Error(), got.Error())
+	}
+}
+
+// A request waiting for mem's lock is not overdue: its deadline starts again
+// from each heartbeat that says it waits, and once more when the wait ends.
+func TestWorkerLockWaitMovesTheDeadline(t *testing.T) {
+	t.Parallel()
+	c := &workerConn{pending: map[uint64]*pendingReq{}}
+	start := time.Now()
+	c.pending[1] = &pendingReq{deadline: start.Add(requestDeadline)}
+	c.last.Store(start.UnixNano())
+
+	at := start.Add(20 * time.Minute)
+	c.heard(&frame{ID: 1, Type: msgHeartbeat, Waiting: true}, at)
+	c.last.Store(at.UnixNano())
+	require.Empty(t, c.verdict(at), "20 minutes waiting for mem's lock is not overdue")
+
+	end := at.Add(time.Minute)
+	c.heard(&frame{ID: 1, Type: msgHeartbeat}, end)
+	c.last.Store(end.Add(10 * time.Minute).UnixNano())
+	require.Empty(t, c.verdict(end.Add(10*time.Minute)), "the deadline runs from the wait's end")
+	require.Equal(t, end.Add(requestDeadline), c.pending[1].deadline)
+
+	later := end.Add(time.Minute)
+	c.heard(&frame{ID: 1, Type: msgHeartbeat}, later)
+	require.Equal(t, end.Add(requestDeadline), c.pending[1].deadline, "an ordinary heartbeat does not move it")
+	c.last.Store(end.Add(requestDeadline + overdueKill + time.Second).UnixNano())
+	require.Contains(t, c.verdict(end.Add(requestDeadline+overdueKill+time.Second)), "deadline")
+}
+
+// A catch-up whose slice is spent goes on through the client at once: the
+// caller gets the answer, never "call again". (Not parallel: the client is
+// process-wide, and it shortens memBatchOps and memSlice.)
+func TestClientCallsACatchUpAgain(t *testing.T) {
+	dir := t.TempDir()
+	h := newTestHost(t, dir)
+	for i := 1; i <= 10; i++ {
+		run(t, h, MemVM, fmt.Sprintf(`mem.Todo("goal %d")`, i))
+	}
+	require.NoError(t, h.Close())
+	stores, _ := filepath.Glob(filepath.Join(memDir(dir, "/proj"), "store-*"))
+	require.Len(t, stores, 1)
+	require.NoError(t, os.RemoveAll(stores[0]))
+
+	defer func(n int, d time.Duration) { memBatchOps, memSlice = n, d }(memBatchOps, memSlice)
+	memBatchOps, memSlice = 3, 0
+	c, err := Acquire(ClientOptions{Options: Options{Dir: dir}, InProcess: true})
+	require.NoError(t, err)
+	defer c.Release()
+	res, err := c.Run(context.Background(), RunRequest{Project: "/proj", Session: "s1", Name: MemVM, Code: `println(mem.Show())`})
+	require.NoError(t, err)
+	require.NoError(t, res.Err)
+	for i := 1; i <= 10; i++ {
+		require.Contains(t, res.Output, fmt.Sprintf("`goal-%d`", i))
 	}
 }

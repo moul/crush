@@ -145,9 +145,13 @@ func (c *Client) Deaths() []string {
 	return append([]string(nil), c.deaths...)
 }
 
-// Run runs code in a VM; see Host.Run.
+// Run runs code in a VM; see Host.Run. A call to mem whose catch-up spent
+// its slice is made again at once, here, so the model never retries it.
 func (c *Client) Run(ctx context.Context, req RunRequest) (*RunResult, error) {
 	res, err := c.run(ctx, req)
+	for req.Name == MemVM && callAgain(ctx, err) {
+		res, err = c.run(ctx, req)
+	}
 	if err == nil && res != nil && req.Name == MemVM && res.Journaled {
 		c.memChanged(req.Project)
 	}
@@ -272,9 +276,16 @@ func (c *Client) MemCommand(ctx context.Context, project, session, args string, 
 		if err != nil {
 			return "", nil, err
 		}
-		return h.memCommand(ctx, project, session, args, titles)
+		text, erased, err := h.memCommand(ctx, project, session, args, titles)
+		for callAgain(ctx, err) {
+			text, erased, err = h.memCommand(ctx, project, session, args, titles)
+		}
+		return text, erased, err
 	}
 	body, err := c.call(ctx, msgMem, memReq{Project: project, Session: session, Args: args, Titles: titles})
+	for callAgain(ctx, err) {
+		body, err = c.call(ctx, msgMem, memReq{Project: project, Session: session, Args: args, Titles: titles})
+	}
 	if err != nil {
 		return "", nil, err
 	}
@@ -370,6 +381,9 @@ type workerConn struct {
 type pendingReq struct {
 	done     chan *frame
 	deadline time.Time
+	// waiting is set while the worker says the request waits for mem's
+	// lock; the deadline starts again when the wait ends.
+	waiting bool
 }
 
 // spawnWorker starts a worker and shakes hands with it.
@@ -583,6 +597,30 @@ func (c *workerConn) send(f *frame) error {
 	return writeFrame(c.reqW, f)
 }
 
+// callAgain reports whether err is mem's catch-up having spent its slice,
+// with ctx still live: the call goes on at once (each call applies more
+// and keeps it; the lock is let go between, so others get their turns).
+func callAgain(ctx context.Context, err error) bool {
+	var busy *busyError
+	return err != nil && errors.As(err, &busy) && busy.again && ctx.Err() == nil
+}
+
+// heard takes a heartbeat for its request: while the worker says the
+// request waits for mem's lock, and once more when it stops waiting, the
+// request's deadline starts again from now.
+func (c *workerConn) heard(f *frame, now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	p := c.pending[f.ID]
+	if p == nil {
+		return
+	}
+	if f.Waiting || p.waiting {
+		p.deadline = now.Add(requestDeadline)
+	}
+	p.waiting = f.Waiting
+}
+
 // readLoop takes the worker's frames: replies to whoever waits, and every
 // frame, heartbeats included, as a sign of life.
 func (c *workerConn) readLoop() {
@@ -591,7 +629,11 @@ func (c *workerConn) readLoop() {
 		if err != nil {
 			return
 		}
-		c.last.Store(time.Now().UnixNano())
+		now := time.Now()
+		c.last.Store(now.UnixNano())
+		if f.Type == msgHeartbeat {
+			c.heard(f, now)
+		}
 		if f.Type != msgResult {
 			continue
 		}
@@ -683,9 +725,16 @@ func (c *Client) goal(ctx context.Context, req goalReq) (goalResp, error) {
 		if err != nil {
 			return goalResp{}, err
 		}
-		return h.goal(ctx, req)
+		resp, err := h.goal(ctx, req)
+		for callAgain(ctx, err) {
+			resp, err = h.goal(ctx, req)
+		}
+		return resp, err
 	}
 	body, err := c.call(ctx, msgGoal, req)
+	for callAgain(ctx, err) {
+		body, err = c.call(ctx, msgGoal, req)
+	}
 	if err != nil {
 		return goalResp{}, err
 	}

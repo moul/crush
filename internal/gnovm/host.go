@@ -471,15 +471,19 @@ func (h *Host) lockVM(ctx context.Context, s *vmState) (func(), error) {
 			if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) > 0 {
 				holder = "gnosh process " + strings.TrimSpace(string(b))
 			}
-			return nil, &busyError{fmt.Sprintf("VM %s is in use by %s; try again shortly", s.name, holder)}
+			return nil, &busyError{msg: fmt.Sprintf("VM %s is in use by %s; try again shortly", s.name, holder)}
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
 }
 
 // busyError is a VM that cannot be used right now; trying again later may
-// work.
-type busyError struct{ msg string }
+// work. again marks mem's catch-up whose slice is spent: the work goes on
+// with the next call, which the client makes at once, never the model.
+type busyError struct {
+	msg   string
+	again bool
+}
 
 func (e *busyError) Error() string { return e.msg }
 
@@ -609,7 +613,7 @@ func (h *Host) resident(ctx context.Context, s *vmState, budget time.Duration) (
 	start := time.Now()
 	for i := range todo {
 		if i > 0 && time.Since(start)+3*time.Duration(todo[i].WallNS) > budget {
-			return nil, notes, &busyError{fmt.Sprintf(
+			return nil, notes, &busyError{msg: fmt.Sprintf(
 				"VM %s is being rebuilt from its journal (%d of %d entries done in %s); call again to continue",
 				s.name, i, len(todo), time.Since(start).Round(time.Millisecond))}
 		}
@@ -621,7 +625,7 @@ func (h *Host) resident(ctx context.Context, s *vmState, budget time.Duration) (
 				// fault. The entry cut short left the VM unusable.
 				s.res = nil
 				if lim.kind == "wall" {
-					return nil, notes, &busyError{fmt.Sprintf("rebuilding VM %s ran slower than expected at entry %d; call again", s.name, todo[i].Seq)}
+					return nil, notes, &busyError{msg: fmt.Sprintf("rebuilding VM %s ran slower than expected at entry %d; call again", s.name, todo[i].Seq)}
 				}
 				return nil, notes, err
 			}

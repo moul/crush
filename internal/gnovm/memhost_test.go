@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/crush/internal/lock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1051,4 +1052,47 @@ func TestMemOnlyCalls(t *testing.T) {
 	} {
 		require.Equal(t, want, memOnlyCalls(code), code)
 	}
+}
+
+// mem's lock has no cap: a call waits in the kernel for as long as another
+// process holds the lock, and goes on the moment it is let go; one stopped
+// by its context says so, and is not a catch-up to call again.
+func TestMemLockWaitsWithoutACap(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	h := newTestMemHost(t, dir)
+	memOK(t, h, `mem.Todo("first")`)
+	other, err := lock.File(context.Background(), filepath.Join(dir, "lock"))
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := h.call(context.Background(), memRequest{Code: `mem.Todo("second")`})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("the call did not wait for the lock: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	let := time.Now()
+	other()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+		require.Less(t, time.Since(let), 2*time.Second)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the call never got the lock")
+	}
+
+	other, err = lock.File(context.Background(), filepath.Join(dir, "lock"))
+	require.NoError(t, err)
+	defer other()
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(100 * time.Millisecond); cancel() }()
+	_, err = h.call(ctx, memRequest{Code: `mem.Todo("third")`})
+	var busy *busyError
+	require.ErrorAs(t, err, &busy)
+	require.False(t, busy.again, "a stopped wait is not a catch-up to call again")
+	require.False(t, callAgain(context.Background(), err))
 }

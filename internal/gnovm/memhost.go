@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/crush/internal/lock"
@@ -56,8 +57,13 @@ type memHost struct {
 }
 
 func newMemHost(b *base, dir string) *memHost {
-	return &memHost{b: b, dir: dir, now: time.Now, slice: 10 * time.Second}
+	return &memHost{b: b, dir: dir, now: time.Now, slice: memSlice}
 }
+
+// memSlice is how long one call may spend catching mem's store up with its
+// journal before it lets go of the lock and is called again. (A variable
+// only so tests can shorten it.)
+var memSlice = 10 * time.Second
 
 // memBatchOps is about how many Ops one transaction applies when the store
 // catches up with the journal. (A variable only so tests can shorten it.)
@@ -369,36 +375,55 @@ func (h *memHost) holding(j *journal) func(text string, ops []memOp) (names, kin
 	}
 }
 
-// lock takes mem's lock, waiting at most lockWait while another gnosh
-// process holds it.
+// lock takes mem's lock, waiting for as long as another gnosh process
+// holds it.
 func (h *memHost) lock(ctx context.Context) (func(), error) {
 	return lockMemDir(ctx, h.dir)
 }
 
-// lockMemDir takes the lock of mem in dir, waiting at most lockWait, or
-// until ctx is done, while another holds it: a gnosh process's call, or
-// its main process reading the index or writing vectors.
+// lockMemDir takes the lock of mem in dir, waiting while another holds it
+// (a gnosh process's call, or its main process reading the index or
+// writing vectors) until ctx is done. The wait is the kernel's: the lock
+// is granted the moment its holder lets go, with no polling and no limit
+// but ctx; every holder's turn is one call, which mem bounds.
 func lockMemDir(ctx context.Context, dir string) (func(), error) {
 	if err := mkdirSync(dir); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, lockWait)
-	defer cancel()
 	path := filepath.Join(dir, "lock")
-	for {
-		release, err := lock.TryFile(path)
-		if err == nil {
-			return release, nil
-		}
-		if !errors.Is(err, lock.ErrContended) {
-			return nil, err
-		}
-		select {
-		case <-ctx.Done():
-			return nil, &busyError{"mem is in use by another gnosh process; try again shortly"}
-		case <-time.After(20 * time.Millisecond):
-		}
+	if release, err := lock.TryFile(path); err == nil {
+		return release, nil
+	} else if !errors.Is(err, lock.ErrContended) {
+		return nil, err
 	}
+	// A worker's heartbeats say it waits, so the client does not count the
+	// wait against the request's deadline.
+	if w := lockWaiting(ctx); w != nil {
+		w.Store(true)
+		defer w.Store(false)
+	}
+	release, err := lock.File(ctx, path)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, &busyError{msg: "stopped waiting for mem, which another gnosh process was using"}
+		}
+		return nil, err
+	}
+	return release, nil
+}
+
+// lockWaitingKey carries a request's flag for "waiting for mem's lock".
+type lockWaitingKey struct{}
+
+// withLockWaiting is ctx carrying flag, which lockMemDir sets while it
+// waits for mem's lock.
+func withLockWaiting(ctx context.Context, flag *atomic.Bool) context.Context {
+	return context.WithValue(ctx, lockWaitingKey{}, flag)
+}
+
+func lockWaiting(ctx context.Context) *atomic.Bool {
+	flag, _ := ctx.Value(lockWaitingKey{}).(*atomic.Bool)
+	return flag
 }
 
 // newerGno reports whether gno version v, a store's, is newer than this
@@ -638,7 +663,7 @@ func (h *memHost) catchUp(r *memRealm, j *journal) (int, error) {
 		return nil
 	})
 	if errors.Is(err, errCallAgain) {
-		return applied, &busyError{fmt.Sprintf("mem's store is catching up with its journal (%d entries after entry %d applied); call again", applied, from)}
+		return applied, &busyError{msg: fmt.Sprintf("mem's store is catching up with its journal (%d entries after entry %d applied); call again", applied, from), again: true}
 	}
 	if err == nil {
 		err = flush()
