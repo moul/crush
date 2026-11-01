@@ -428,7 +428,11 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 	}()
 
 	id := uuid.New().String()
-	cfg, err := config.Init(args.Path, args.DataDir, args.Debug)
+	var opts []config.LoadOption
+	if args.TrustFolder {
+		opts = append(opts, config.TrustFolderForSession())
+	}
+	cfg, err := config.Init(args.Path, args.DataDir, args.Debug, opts...)
 	if err != nil {
 		return nil, proto.Workspace{}, fmt.Errorf("failed to initialize config: %w", err)
 	}

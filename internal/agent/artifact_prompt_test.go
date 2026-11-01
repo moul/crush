@@ -29,7 +29,7 @@ func TestTheCoderIsAskedForArtifactsOnlyWhenInteractive(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(env.workingDir, "crush.json"), []byte(crushJSON), 0o644))
 
 	coderPromptFor := func(interactive bool) string {
-		cfg, err := config.Init(env.workingDir, "", false)
+		cfg, err := config.Init(env.workingDir, "", false, config.TrustFolderForSession())
 		require.NoError(t, err)
 		cfg.SetupAgents()
 		c, err := NewCoordinator(t.Context(), CoordinatorOptions{
@@ -74,7 +74,7 @@ func TestTheArtifactToolFollowsTheSameGate(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(env.workingDir, "crush.json"), []byte(crushJSON), 0o644))
 
 	has := func(interactive bool) bool {
-		cfg, err := config.Init(env.workingDir, "", false)
+		cfg, err := config.Init(env.workingDir, "", false, config.TrustFolderForSession())
 		require.NoError(t, err)
 		cfg.SetupAgents()
 		c, err := NewCoordinator(t.Context(), CoordinatorOptions{
@@ -130,7 +130,7 @@ func TestTheCoordinatorGivesTheToolItsPublisher(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(env.workingDir, "crush.json"), []byte(crushJSON), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(env.workingDir, "cut.mp4"), []byte("x"), 0o644))
 
-	cfg, err := config.Init(env.workingDir, "", false)
+	cfg, err := config.Init(env.workingDir, "", false, config.TrustFolderForSession())
 	require.NoError(t, err)
 	cfg.SetupAgents()
 	c, err := NewCoordinator(t.Context(), CoordinatorOptions{

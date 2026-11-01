@@ -29,6 +29,11 @@ type Workspace struct {
 	// creation time. Subsequent updates flow through the SSE event
 	// stream.
 	Skills []SkillState `json:"skills,omitempty"`
+	// TrustFolder is set when the client trusts the folder's project
+	// settings for this session without recording it: the user answered
+	// yes in the home directory, or passed --trust-folder. A workspace
+	// another client created first keeps that client's answer.
+	TrustFolder bool `json:"trust_folder,omitempty"`
 }
 
 // Error represents an error response.

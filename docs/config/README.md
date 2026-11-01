@@ -83,6 +83,20 @@ fi
 Just like `gnosh.json`, `gnoshrc` is a trusted file. Guard it carefully and
 don't download random configs without reading them first.
 
+A project's own `gnoshrc` and `gnosh.json` wait until you trust its folder.
+The first time Gnosh starts in a folder whose settings would run code or allow
+anything (a `gnoshrc`, hooks, MCP or LSP servers, tools allowed without asking,
+providers, `env`, hosts and the other options), it asks whether you trust the
+files in it, and lists what they would do. Until you say yes, the project's
+`gnoshrc` does not run, and of its JSON (the `gnosh.json` in its `.gnosh/`
+folder too) only `permissions.deny`, `options.disabled_tools` and
+`options.disabled_skills` apply; a project skills folder that links outside
+the project is left out too. `gnosh run` leaves the rest out and says so on
+stderr. `gnosh trust [folder]` trusts a folder from the command line, and
+`--trust-folder` trusts it for one session without recording it. A setting
+you want in a folder you have not trusted goes in your global `gnoshrc`. See
+[A cloned repository runs nothing until you trust it](../../README.md#a-cloned-repository-runs-nothing-until-you-trust-it).
+
 ## Where config lives
 
 Gnosh looks for config in the following places, with lower numbers taking
@@ -641,7 +655,8 @@ headers) are shell-expanded at load time. In `gnoshrc` there's no such list —
 it's all just Bash.
 
 Both formats are trusted code: they run with your shell privileges before the UI
-appears. Don't launch Gnosh in a directory whose config you haven't read.
+appears. A project's own run only once you trust its folder; don't trust a
+folder whose config you haven't read.
 
 ---
 

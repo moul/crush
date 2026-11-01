@@ -1105,6 +1105,11 @@ type Config struct {
 	// customizations are off (see applySafeMode).
 	SafeMode bool `json:"-"`
 
+	// HeldProject is what of the project's own settings this config holds
+	// back because the folder is not trusted, or nil when it holds nothing
+	// (see TrustFolderOf).
+	HeldProject *ProjectSettings `json:"-"`
+
 	// skippedProviders records, for each provider the user configured
 	// that loading had to leave out, why: a model server that did not
 	// answer, a missing key or endpoint. With no provider left, that is

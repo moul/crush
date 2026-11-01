@@ -53,7 +53,7 @@ func TestLoad_RejectsInvalidConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			workDir, dataDir, _ := isolatedConfig(t, tt.cfgJSON)
-			_, err := config.Load(workDir, dataDir, false)
+			_, err := config.Load(workDir, dataDir, false, config.TrustFolderForSession())
 			require.Error(t, err, "a config Crush can't honour must not load")
 			require.Contains(t, err.Error(), tt.wantErr)
 		})
@@ -76,7 +76,7 @@ func TestReloadFromDisk_RejectsInvalidConfig(t *testing.T) {
 			goodJSON := `{"hooks": {"PreToolUse": [{"command": "exit 0"}]}}`
 			workDir, dataDir, configPath := isolatedConfig(t, goodJSON)
 
-			store, err := config.Load(workDir, dataDir, false)
+			store, err := config.Load(workDir, dataDir, false, config.TrustFolderForSession())
 			require.NoError(t, err)
 			require.Len(t, store.Config().Hooks["PreToolUse"], 1)
 
@@ -104,7 +104,7 @@ func TestLoadAndReload_AcceptValidConfig(t *testing.T) {
     }`
 	workDir, dataDir, _ := isolatedConfig(t, cfgJSON)
 
-	store, err := config.Load(workDir, dataDir, false)
+	store, err := config.Load(workDir, dataDir, false, config.TrustFolderForSession())
 	require.NoError(t, err)
 	require.NoError(t, store.ReloadFromDisk(context.Background()))
 	require.Len(t, store.Config().Hooks["PreToolUse"], 1)

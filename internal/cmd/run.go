@@ -141,6 +141,9 @@ gnosh run --continue "Follow up on your last response"
 			defer cleanup()
 
 			event.AppInitialized()
+			// gnosh run never asks: an untrusted folder's settings stay
+			// out, and it says so.
+			noteUntrusted(cmd, scanUntrusted(cmd))
 
 			if !ws.Config.IsConfigured() {
 				return noProviderError(ws.Config)
@@ -179,6 +182,9 @@ gnosh run --continue "Follow up on your last response"
 		defer cleanup()
 
 		event.AppInitialized()
+		// gnosh run never asks: an untrusted folder's settings stay out,
+		// and it says so.
+		noteUntrusted(cmd, ws.Config().HeldProject)
 
 		if !ws.Config().IsConfigured() {
 			return noProviderError(ws.Config())
@@ -260,6 +266,7 @@ func addRunFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("name", "n", "", nameUsage)
 	cmd.Flags().String("goal", "", "Keep working until this holds, as /goal does: the goal is kept in mem, checked once the agent closes it, and the run exits non-zero while it is still set")
 	addSafeModeFlag(cmd)
+	addTrustFolderFlag(cmd)
 	cmd.Flags().String("output-format", "text", "How the answer is printed: text, as it streams; json, one result object at the end; or stream-json, a JSON line per message and the result at the end (as Claude Code's -p --output-format)")
 	// The yolo flags are accepted so that Claude Code's
 	// `-p --dangerously-skip-permissions` works, and change nothing: run

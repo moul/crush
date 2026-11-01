@@ -37,6 +37,8 @@ gnosh models gpt5`,
 		if err != nil {
 			return err
 		}
+		// A provider an untrusted folder's settings name is not listed.
+		noteUntrusted(cmd, cfg.Config().HeldProject)
 
 		term := strings.ToLower(strings.Join(args, " "))
 

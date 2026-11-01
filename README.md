@@ -425,6 +425,63 @@ Finding by meaning is off the same way: until you name an embedding server
 with `option mem-embeddings-url`, mem sends nothing anywhere, and with it,
 mem's text and the prompts you type go to that server alone.
 
+### A cloned repository runs nothing until you trust it
+
+A project's own settings can run code. Its `gnoshrc` is a shell script that
+runs as Gnosh starts, and its `gnosh.json` can add hooks, start MCP and LSP
+servers, let tools run without asking, and point a provider's `base_url`, with
+your API key, at someone else's server. Upstream Crush used them all the
+moment it started, so starting it in a repository you had just cloned ran the
+stranger's code with your permissions.
+
+Gnosh asks first, as Claude Code does. The first time you start it in a folder
+whose settings would do any of that, it asks "Do you trust the files in this
+folder?", names the folder and lists what its settings would do: the
+`gnoshrc` that would run, each hook, the servers, the tools let run without
+asking, the providers. Yes remembers the folder. No starts the session with
+your own settings only, and Gnosh asks again next time.
+
+Until you say yes:
+
+- None of the project's `gnoshrc` files runs.
+- Of its `gnosh.json` files, and the one in its `.gnosh/` folder, only what
+  takes something away from the agent applies: `permissions.deny`,
+  `options.disabled_tools` and `options.disabled_skills`. Everything else
+  waits: hooks, MCP and LSP servers, `permissions.allowed_tools` and `allow`,
+  providers with their keys and `base_url`, `env`, hosts, models and every
+  other option.
+- A skills folder of the project's (`.agents/skills`, `.claude/skills` and
+  the like) that links to somewhere outside the project is left out, since
+  the agent reads a skill's files without asking.
+- Its `AGENTS.md` and other context files, the skills inside it and its
+  custom commands are still read, as text for the model. None of them runs
+  anything.
+- Language servers still start as the agent opens files: yours, and those
+  Gnosh finds for the project's languages. A few build the project to read
+  it, and building runs its code (rust-analyzer runs a Rust crate's build
+  scripts). `option auto-lsp false` in your own `gnoshrc` stops the ones
+  Gnosh finds.
+
+How to trust a folder, and what counts as one:
+
+- `gnosh run` never asks. In a folder not trusted it leaves the project's
+  settings out and says so in one line on stderr, with how to trust it.
+- `gnosh trust [folder]` trusts a folder from the command line and says what
+  its settings now do; `gnosh trust --list` lists the trusted folders and
+  `gnosh trust --forget [folder]` forgets one. `--trust-folder`, on `gnosh` or
+  `gnosh run`, trusts the folder for that session without recording it, for
+  scripts.
+- Trust is kept for a git repository's main checkout, so its worktrees share
+  it, or outside a repository for the folder and the folders under it that are
+  not repositories of their own. A folder cannot borrow a trusted
+  repository's trust by naming it in a `.git` of its own: a worktree shares
+  it only when the repository lists that worktree as its own.
+- Your home directory is trusted for one session at a time. The record is
+  Gnosh's, in its data directory (`~/.local/share/gnosh/trusted-folders.json`),
+  never the project's.
+- A folder with no project settings, or none that wait for trust, is not asked
+  about.
+
 ### Untrusted text stays untrusted
 
 Web pages, command output and server replies can carry a model's own control
@@ -511,6 +568,7 @@ Claude Code's names work here too.
 | `--system-prompt "…"`            | `--system-prompt "…"`, or `--system-prompt-file`   | Use these instructions in place of Gnosh's own              |
 | `--append-system-prompt "…"`     | `--append-system-prompt "…"`, or its `-file` form  | Add this text at the end of the system prompt               |
 | `claude doctor`                  | `gnosh doctor`, or `/doctor` in a session          | Check config, providers, models, hooks and tools            |
+| The workspace trust dialog       | "Do you trust the files in this folder?"; `gnosh trust`, `--trust-folder` | Ask before a folder's own settings run or apply: its `gnoshrc`, hooks, MCP servers, tools allowed without asking, providers. No starts the session with your settings only. See [A cloned repository runs nothing until you trust it](#a-cloned-repository-runs-nothing-until-you-trust-it) |
 
 - **Hooks** take Claude Code's events and answers: `PreToolUse`,
   `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`, `SessionStart`,
@@ -927,9 +985,11 @@ $HOME/.local/share/gnosh/gnosh.json
 #### A note on security
 
 Both `gnoshrc` and `gnosh.json` are trusted code; `gnoshrc` runs in a full
-shell, and any `$(...)` in `gnosh.json` runs at load time. Don't launch Gnosh
-in a directory whose config you haven't reviewed, and don't randomly `source`
-files from the internet into your config.
+shell, and any `$(...)` in `gnosh.json` runs at load time. A project's own
+are used only once you trust its folder (see
+[A cloned repository runs nothing until you trust it](#a-cloned-repository-runs-nothing-until-you-trust-it)),
+so don't trust a folder whose config you haven't read, and don't randomly
+`source` files from the internet into your config.
 
 ### Environment Variables
 

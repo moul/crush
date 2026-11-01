@@ -157,6 +157,7 @@ func TestSetProviderAPIKeyOpenAIIsEitherOr(t *testing.T) {
 			config:         &Config{Providers: providers},
 			globalDataPath: configPath,
 			workingDir:     dir,
+			trust:          trustedForTest,
 		}
 	}
 
@@ -401,7 +402,7 @@ func TestLoadRefreshesChatGPTModelsWhenCatwalkUpdates(t *testing.T) {
 
 	fetched := stubChatGPTModels(t, []catwalk.Model{{ID: "gpt-fresh", Name: "GPT Fresh"}})
 
-	store, err := Load(workDir, dataDir, false)
+	store, err := Load(workDir, dataDir, false, TrustFolderForSession())
 	require.NoError(t, err)
 
 	require.True(t, CatwalkUpdated(), "the stub served a fresh catalog")
@@ -435,7 +436,7 @@ func TestLoadKeepsChatGPTModelsWhenCatwalkNotModified(t *testing.T) {
 
 	fetched := stubChatGPTModels(t, []catwalk.Model{{ID: "gpt-fresh", Name: "GPT Fresh"}})
 
-	store, err := Load(workDir, dataDir, false)
+	store, err := Load(workDir, dataDir, false, TrustFolderForSession())
 	require.NoError(t, err)
 
 	require.False(t, CatwalkUpdated(), "the stub reported the catalog unchanged")

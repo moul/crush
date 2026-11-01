@@ -594,7 +594,7 @@ func TestCoordinatorAgentsShareItsGoals(t *testing.T) {
              "small": {"provider": "mock", "model": "mock-model"}}
 }`
 	require.NoError(t, os.WriteFile(filepath.Join(env.workingDir, "crush.json"), []byte(crushJSON), 0o644))
-	cfg, err := config.Init(env.workingDir, "", false)
+	cfg, err := config.Init(env.workingDir, "", false, config.TrustFolderForSession())
 	require.NoError(t, err)
 	cfg.SetupAgents()
 	c, err := NewCoordinator(t.Context(), CoordinatorOptions{

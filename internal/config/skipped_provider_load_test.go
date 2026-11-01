@@ -43,7 +43,7 @@ func TestLoadWithOnlyAnUnreachableProviderSaysWhy(t *testing.T) {
 	srv.Close()
 	writeProviderConfig(t, workDir, url)
 
-	store, err := config.Load(workDir, dataDir, false)
+	store, err := config.Load(workDir, dataDir, false, config.TrustFolderForSession())
 	require.NoError(t, err)
 	require.False(t, store.Config().IsConfigured())
 	require.Contains(t, store.Config().SkippedProvidersSummary(), "qwen: its model server did not answer")
@@ -57,7 +57,7 @@ func TestReloadWhileTheModelServerIsDownKeepsTheConfig(t *testing.T) {
 	srv := modelServer(t)
 	writeProviderConfig(t, workDir, srv.URL)
 
-	store, err := config.Load(workDir, dataDir, false)
+	store, err := config.Load(workDir, dataDir, false, config.TrustFolderForSession())
 	require.NoError(t, err)
 	require.True(t, store.Config().IsConfigured())
 

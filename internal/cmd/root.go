@@ -73,6 +73,7 @@ func init() {
 	_ = rootCmd.PersistentFlags().MarkHidden("channels")
 	addSessionFlags(rootCmd)
 	addSafeModeFlag(rootCmd)
+	addTrustFolderFlag(rootCmd)
 	rootCmd.Flags().StringP("model", "m", "", "Model for this session, in memory only, as Claude Code's --model: 'model' or 'provider/model', as gnosh run's -m takes; /model still switches and saves as before")
 
 	rootCmd.AddCommand(
@@ -89,6 +90,7 @@ func init() {
 		sessionCmd,
 		memCmd,
 		doctorCmd,
+		trustCmd,
 	)
 }
 
@@ -143,6 +145,12 @@ gnosh -r auth-refactor "finish this PR"
 		pick := sessionID == pickSession
 		if pick {
 			sessionID = ""
+		}
+
+		// Ask before the config loads: whether the folder is trusted
+		// decides whether its gnoshrc runs and its settings apply.
+		if err := askFolderTrust(cmd); err != nil {
+			return err
 		}
 
 		ws, cleanup, err := setupWorkspaceWithProgressBar(cmd)
@@ -562,7 +570,7 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 		return nil, nil, err
 	}
 
-	store, err := config.Init(cwd, dataDir, debug)
+	store, err := config.Init(cwd, dataDir, debug, trustFolderOptions(cmd)...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -739,13 +747,14 @@ func connectToServer(cmd *cobra.Command) (*client.Client, *proto.Workspace, func
 	}
 
 	wsReq := proto.Workspace{
-		Path:     cwd,
-		DataDir:  dataDir,
-		Debug:    debug,
-		YOLO:     yolo,
-		Channels: channels,
-		Version:  version.Version,
-		Env:      os.Environ(),
+		Path:        cwd,
+		DataDir:     dataDir,
+		Debug:       debug,
+		YOLO:        yolo,
+		Channels:    channels,
+		Version:     version.Version,
+		Env:         os.Environ(),
+		TrustFolder: trustFolderFlag(cmd),
 	}
 
 	ws, err := createWorkspaceOnLiveServer(cmd.Context(), c, wsReq, func() error {
@@ -1431,9 +1440,17 @@ func resolveWorkspaceSessionID(ctx context.Context, ws workspace.Workspace, id s
 	}
 }
 
+// ResolveCwd changes to the directory --cwd names, if any, and returns the
+// working directory. A relative --cwd is made absolute first and kept so:
+// once the directory has changed it would name another one, and the TUI
+// resolves it twice, to ask the trust question and to set up the workspace.
 func ResolveCwd(cmd *cobra.Command) (string, error) {
 	cwd, _ := cmd.Flags().GetString("cwd")
 	if cwd != "" {
+		if abs, err := filepath.Abs(cwd); err == nil && abs != cwd {
+			cwd = abs
+			_ = cmd.Flags().Set("cwd", abs)
+		}
 		err := os.Chdir(cwd)
 		if err != nil {
 			return "", fmt.Errorf("failed to change directory: %v", err)

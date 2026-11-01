@@ -142,6 +142,10 @@ type ConfigStore struct {
 	trackedConfigPaths []string                // unique, normalized config file paths
 	snapshots          map[string]fileSnapshot // path -> snapshot at last capture
 
+	// trust is whether the project's own settings are used, decided as the
+	// store first loads and kept by every reload.
+	trust ProjectTrust
+
 	// configMu guards the config pointer field against concurrent
 	// readers (Config) and the writeMu-serialised swap (setConfig). It
 	// protects the pointer word only; the pointed-to Config is treated
@@ -197,6 +201,12 @@ func (s *ConfigStore) setConfig(cfg *Config) {
 // WorkingDir returns the current working directory.
 func (s *ConfigStore) WorkingDir() string {
 	return s.workingDir
+}
+
+// ProjectTrust is whether the store uses the project's own settings: its
+// folder, and whether it is trusted, for good or for this session.
+func (s *ConfigStore) ProjectTrust() ProjectTrust {
+	return s.trust
 }
 
 // Resolver returns the variable resolver.
@@ -1338,11 +1348,16 @@ func nextRecentModels(cfg *Config, modelType SelectedModelType, model SelectedMo
 // has no working directory, so code that runs commands in it (hooks)
 // runs them in the process's. For a test's own directory, use
 // NewTestStoreIn.
+//
+// The store trusts its project for the session, as a store holding a
+// config already in use: a reload from disk uses the project's own
+// settings in full.
 func NewTestStore(cfg *Config, loadedPaths ...string) *ConfigStore {
 	return &ConfigStore{
 		config:      cfg,
 		loadedPaths: loadedPaths,
 		resolver:    NewShellVariableResolver(env.New()),
+		trust:       ProjectTrust{Trusted: true, Session: true},
 	}
 }
 
@@ -1543,8 +1558,9 @@ func (s *ConfigStore) reloadFromDiskLocked(ctx context.Context) error {
 	if err := checkProjectConfigOwners(s.workingDir); err != nil {
 		return fmt.Errorf("config reload rejected: %w", err)
 	}
+	gate := newProjectGate(s.workingDir, s.trust)
 	configPaths := lookupConfigs(s.workingDir)
-	cfg, loadedPaths, err := loadFromConfigPaths(ctx, configPaths)
+	cfg, loadedPaths, err := loadFromConfigPathsGated(ctx, configPaths, gate)
 	if err != nil {
 		return fmt.Errorf("failed to reload config: %w", err)
 	}
@@ -1555,16 +1571,18 @@ func (s *ConfigStore) reloadFromDiskLocked(ctx context.Context) error {
 		dataDir = cur.Options.DataDirectory
 	}
 	cfg.setDefaults(s.workingDir, dataDir)
+	gate.holdSkillDirs(cfg, s.workingDir)
 
 	// Merge workspace config if present
 	workspacePath := configFileIn(cfg.Options.DataDirectory)
-	merged, err := mergeWorkspaceConfig(cfg, workspacePath, s.workingDir)
+	merged, err := mergeWorkspaceConfigGated(cfg, workspacePath, s.workingDir, gate)
 	if err != nil {
 		return err
 	}
 	if merged {
 		loadedPaths = append(loadedPaths, workspacePath)
 	}
+	cfg.HeldProject = gate.heldSettings()
 
 	// Validate after all config merging is complete, the same checks the
 	// initial load runs, so a reload can't install a config that could

@@ -28,6 +28,7 @@ func TestModelsSaysWhyNoProviderCanBeUsed(t *testing.T) {
 	cfg := `{"options": {"disable_default_providers": true}, "providers": {"qwen": {"type": "llamacpp", "base_url": "` + url + `"}}}`
 	require.NoError(t, os.WriteFile(filepath.Join(proj, "gnosh.json"), []byte(cfg), 0o644))
 	t.Chdir(proj)
+	trustForTest(t, proj)
 
 	cmd := &cobra.Command{Use: "models", RunE: modelsCmd.RunE}
 	cmd.Flags().String("cwd", "", "")

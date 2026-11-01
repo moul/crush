@@ -42,7 +42,7 @@ func loadQwen(t *testing.T, baseURL, models, discover string) []int64 {
 	// empty, so a later test's "provider add openai" is no known provider.
 	cfg := `{"providers": {"qwen": {"type": "llamacpp", "base_url": "` + baseURL + `", "models": ` + models + discover + `}}}`
 	require.NoError(t, os.WriteFile(filepath.Join(workDir, "gnosh.json"), []byte(cfg), 0o644))
-	store, err := config.Load(workDir, dataDir, false)
+	store, err := config.Load(workDir, dataDir, false, config.TrustFolderForSession())
 	require.NoError(t, err)
 	p, ok := store.Config().Providers.Get("qwen")
 	require.True(t, ok)

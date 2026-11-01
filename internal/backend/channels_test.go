@@ -204,7 +204,7 @@ func insertChannelWorkspaceCfg(t *testing.T, b *Backend, srvName string, enabled
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(wd, "crush.json"), cfgJSON, 0o644))
 
-	cfg, err := config.Init(wd, "", false)
+	cfg, err := config.Init(wd, "", false, config.TrustFolderForSession())
 	require.NoError(t, err)
 	if enabled {
 		cfg.Overrides().EnabledChannels = []string{srvName}

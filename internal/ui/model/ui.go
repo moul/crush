@@ -688,6 +688,9 @@ func (m *UI) Init() tea.Cmd {
 	if cmd := m.safeModeNotice(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
+	if cmd := m.untrustedNotice(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
 	m.memNoticeDay, m.memNoticeFresh = time.Now().Format(time.DateOnly), true
 	cmds = append(cmds, m.memNotice())
 	// load the user commands async

@@ -109,6 +109,7 @@ func standInRunProject(t *testing.T, more string) string {
 	require.NoError(t, os.WriteFile(filepath.Join(proj, "gnosh.json"), []byte(cfg+"}"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(proj, "a.txt"), []byte("alpha\n"), 0o644))
 	t.Chdir(proj)
+	trustForTest(t, proj)
 	return proj
 }
 

@@ -88,8 +88,10 @@ and every configured hook for those events runs.
 }
 ```
 
-Project-level hooks take precedence over global. Matching hooks are deduped by
-`command`, run in parallel, and aggregated in **config order** (not finish order).
+Project-level hooks take precedence over global. A project's hooks run only
+once the user trusts its folder (the TUI asks; `gnosh trust [folder]` from the
+command line). Matching hooks are deduped by `command`, run in parallel, and
+aggregated in **config order** (not finish order).
 
 ## Language
 

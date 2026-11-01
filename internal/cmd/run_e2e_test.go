@@ -111,6 +111,7 @@ func TestRunEndToEnd(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(proj, "a.txt"), []byte("alpha\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(proj, "b.txt"), []byte("beta\n"), 0o644))
 	t.Chdir(proj)
+	trustForTest(t, proj)
 
 	text, err := runForTest(t, "list the files here")
 	require.NoError(t, err)

@@ -72,6 +72,7 @@ func newRefreshTestStore(t *testing.T, configPath string, exchange func(ctx cont
 		globalDataPath: configPath,
 		workingDir:     filepath.Dir(configPath),
 		exchangeToken:  exchange,
+		trust:          trustedForTest,
 	}
 }
 

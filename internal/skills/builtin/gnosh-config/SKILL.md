@@ -21,6 +21,16 @@ Both are discovered together and deep-merged. Priority (highest to lowest):
    (`%XDG_CONFIG_HOME%\gnosh\gnoshrc` or
    `%USERPROFILE%\.config\gnosh\gnoshrc` on Windows)
 
+A project's own files (1, and the `gnosh.json` in its `.gnosh/` folder) are
+used only once the user trusts its folder: until then its `gnoshrc` does not
+run, and of its JSON only `permissions.deny`, `options.disabled_tools` and
+`options.disabled_skills` apply (hooks, MCP and LSP servers, allowed tools,
+providers, `env`, hosts and every other option wait). The TUI asks the first
+time it starts in such a folder; `gnosh trust [folder]` trusts one from the
+command line, and `gnosh run --trust-folder` for one run; `gnosh doctor` says
+whether the folder is trusted. A setting the user wants in a folder they have
+not trusted goes in the global `gnoshrc` (2).
+
 Data directories (`~/.local/share/gnosh` and `%LOCALAPPDATA%\gnosh`) contain
 machine-owned JSON state only; Gnosh does not discover or execute a `gnoshrc`
 from those locations.

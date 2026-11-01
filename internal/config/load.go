@@ -40,33 +40,64 @@ import (
 
 const defaultCatwalkURL = "https://catwalk.charm.land"
 
+// LoadOption changes how a load treats the project's own settings.
+type LoadOption func(*loadOptions)
+
+type loadOptions struct {
+	trustFolder bool
+}
+
+// TrustFolderForSession has a load use the project's own settings, as a
+// trusted folder's, without recording the trust: for the home directory,
+// which is trusted for a session only, and for --trust-folder. Every reload
+// of the store keeps it.
+func TrustFolderForSession() LoadOption {
+	return func(o *loadOptions) { o.trustFolder = true }
+}
+
 // LoadFiles loads the configuration files from the default paths, merged
 // and with their defaults, and stops short of the providers: for commands
 // that call no model, as gnosh mem and gnosh session, which must work on a
 // machine with none configured. Load goes on from here.
-func LoadFiles(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
-	store, _, err := loadFiles(workingDir, dataDir, debug)
+//
+// The project's own settings are used in full only where its folder is
+// trusted (see TrustFolderOf); elsewhere its gnoshrc does not run and only
+// the settings that take something away apply, the rest reported in
+// Config.HeldProject.
+func LoadFiles(workingDir, dataDir string, debug bool, opts ...LoadOption) (*ConfigStore, error) {
+	store, _, err := loadFiles(workingDir, dataDir, debug, opts...)
 	return store, err
 }
 
 // loadFiles is LoadFiles, with the config paths Load watches for changes:
 // every one it looked at, loaded or not, so a config file created after
 // startup (a crushrc added mid-session, say) counts as a change.
-func loadFiles(workingDir, dataDir string, debug bool) (*ConfigStore, []string, error) {
+func loadFiles(workingDir, dataDir string, debug bool, opts ...LoadOption) (*ConfigStore, []string, error) {
+	var o loadOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	// Migrate deprecated disable_notifications before loading config.
 	migrateDisableNotifications()
 
 	if err := checkProjectConfigOwners(workingDir); err != nil {
 		return nil, nil, err
 	}
+	// Whether the project's own settings are used is decided once, here,
+	// and every reload keeps the decision: a session's answer to the trust
+	// question holds for the whole session.
+	trust := decideTrust(workingDir, o.trustFolder)
+	gate := newProjectGate(workingDir, trust)
 	configPaths := lookupConfigs(workingDir)
 
-	cfg, loadedPaths, err := loadFromConfigPaths(context.Background(), configPaths)
+	cfg, loadedPaths, err := loadFromConfigPathsGated(context.Background(), configPaths, gate)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load config from paths %v: %w", configPaths, err)
 	}
 
 	cfg.setDefaults(workingDir, dataDir)
+	gate.holdSkillDirs(cfg, workingDir)
 
 	store := &ConfigStore{
 		config:         cfg,
@@ -74,6 +105,7 @@ func loadFiles(workingDir, dataDir string, debug bool) (*ConfigStore, []string, 
 		globalDataPath: GlobalConfigData(),
 		workspacePath:  configFileIn(cfg.Options.DataDirectory),
 		loadedPaths:    loadedPaths,
+		trust:          trust,
 	}
 
 	if debug {
@@ -81,7 +113,7 @@ func loadFiles(workingDir, dataDir string, debug bool) (*ConfigStore, []string, 
 	}
 
 	// Load workspace config last so it has highest priority.
-	merged, err := mergeWorkspaceConfig(cfg, store.workspacePath, workingDir)
+	merged, err := mergeWorkspaceConfigGated(cfg, store.workspacePath, workingDir, gate)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -89,6 +121,7 @@ func loadFiles(workingDir, dataDir string, debug bool) (*ConfigStore, []string, 
 		store.config = cfg
 		store.loadedPaths = append(store.loadedPaths, store.workspacePath)
 	}
+	cfg.HeldProject = gate.heldSettings()
 
 	// Validate after all config merging is complete, so the checks see
 	// the same config the session will actually run with.
@@ -100,8 +133,10 @@ func loadFiles(workingDir, dataDir string, debug bool) (*ConfigStore, []string, 
 
 // Load loads the configuration from the default paths and returns a
 // ConfigStore that owns both the pure-data Config and all runtime state.
-func Load(workingDir, dataDir string, debug bool) (*ConfigStore, error) {
-	store, watched, err := loadFiles(workingDir, dataDir, debug)
+// As LoadFiles, it uses the project's own settings in full only where its
+// folder is trusted.
+func Load(workingDir, dataDir string, debug bool, opts ...LoadOption) (*ConfigStore, error) {
+	store, watched, err := loadFiles(workingDir, dataDir, debug, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1006,13 +1041,7 @@ func resolveSelectedModels(cfg *Config, knownProviders []catwalk.Provider) (reso
 // up. Global user-level config locations are always included
 // regardless of the boundary.
 func lookupConfigs(cwd string) []string {
-	// Prepend global user config and machine-owned data JSON. Only the user
-	// config directory contributes a crushrc; the data directory is writable
-	// machine state and must never be executed as Bash. Missing files are
-	// skipped when loaded.
-	configPaths := append(slices.Clone(systemConfigPaths), GlobalConfig())
-	configPaths = append(configPaths, shellConfigSiblings(GlobalConfig())...)
-	configPaths = append(configPaths, GlobalConfigData())
+	configPaths := globalConfigPaths()
 
 	foundConfigs, err := fsext.LookupBounded(cwd, projectBoundary(cwd), projectConfigNames()...)
 	if err != nil {
@@ -1024,6 +1053,17 @@ func lookupConfigs(cwd string) []string {
 	slices.Reverse(foundConfigs)
 
 	return append(configPaths, foundConfigs...)
+}
+
+// globalConfigPaths are the configs every load reads first, whatever the
+// project: the system-wide ones, the user's config and its shell config, and
+// the machine-owned data JSON. Only the user config directory contributes a
+// crushrc; the data directory is writable machine state and must never be
+// executed as Bash. Missing files are skipped when loaded.
+func globalConfigPaths() []string {
+	configPaths := append(slices.Clone(systemConfigPaths), GlobalConfig())
+	configPaths = append(configPaths, shellConfigSiblings(GlobalConfig())...)
+	return append(configPaths, GlobalConfigData())
 }
 
 // projectConfigNames are the names a project config file can have, in
@@ -1077,6 +1117,14 @@ func userName(uid int) string {
 }
 
 func loadFromConfigPaths(ctx context.Context, configPaths []string) (*Config, []string, error) {
+	return loadFromConfigPathsGated(ctx, configPaths, nil)
+}
+
+// loadFromConfigPathsGated is loadFromConfigPaths with the project's own
+// config files passed through gate: where the folder is not trusted, its
+// shell configs do not run and its JSON configs keep only what
+// untrustedKept lists. A nil gate uses every file in full.
+func loadFromConfigPathsGated(ctx context.Context, configPaths []string, gate *projectGate) (*Config, []string, error) {
 	var configs [][]byte
 	var loaded []string
 
@@ -1102,7 +1150,13 @@ func loadFromConfigPaths(ctx context.Context, configPaths []string) (*Config, []
 		}
 
 		dir := filepath.Dir(path)
+		held := gate.holds(path)
 		if isShellConfig(path) {
+			if held {
+				// Running it is what trust is for.
+				gate.held.addScript(path)
+				continue
+			}
 			jsonBytes, err := shellconfig.LoadShellConfig(ctx, path, data)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to load shell config %s: %w", path, err)
@@ -1121,6 +1175,11 @@ func loadFromConfigPaths(ctx context.Context, configPaths []string) (*Config, []
 		} else {
 			if !json.Valid(data) {
 				return nil, nil, fmt.Errorf("invalid JSON in config file %s", path)
+			}
+			if held {
+				if data, err = gate.held.split(path, data); err != nil {
+					return nil, nil, err
+				}
 			}
 			if data, err = flattenHookGroups(data); err != nil {
 				return nil, nil, fmt.Errorf("config file %s: %w", path, err)
@@ -1635,6 +1694,15 @@ func isAppleTerminal() bool { return os.Getenv("TERM_PROGRAM") == "Apple_Termina
 // entry was discarded in silence, and the session ran on as though the
 // file were not there.
 func mergeWorkspaceConfig(cfg *Config, path, workingDir string) (bool, error) {
+	return mergeWorkspaceConfigGated(cfg, path, workingDir, nil)
+}
+
+// mergeWorkspaceConfigGated is mergeWorkspaceConfig with the workspace
+// config passed through gate: one in the project's own data directory, as
+// .gnosh/gnosh.json is, is the project's, and a repository can carry one,
+// so where the folder is not trusted it keeps only what untrustedKept
+// lists.
+func mergeWorkspaceConfigGated(cfg *Config, path, workingDir string, gate *projectGate) (bool, error) {
 	wsData, err := readFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
@@ -1647,6 +1715,11 @@ func mergeWorkspaceConfig(cfg *Config, path, workingDir string) (bool, error) {
 	}
 	if !json.Valid(wsData) {
 		return false, fmt.Errorf("invalid JSON in config file %s", path)
+	}
+	if gate.holdsWorkspace(path) {
+		if wsData, err = gate.held.split(path, wsData); err != nil {
+			return false, err
+		}
 	}
 	if wsData, err = flattenHookGroups(wsData); err != nil {
 		return false, fmt.Errorf("config file %s: %w", path, err)

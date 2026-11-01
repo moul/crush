@@ -408,7 +408,7 @@ func TestSetConfigField_AutoReloads(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte(initialConfig), 0o600))
 
 	// Load initial config
-	store, err := Load(dir, dir, false)
+	store, err := Load(dir, dir, false, TrustFolderForSession())
 	require.NoError(t, err)
 
 	// Verify initial state
@@ -443,7 +443,7 @@ func TestRemoveConfigField_AutoReloads(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte(initialConfig), 0o600))
 
 	// Load initial config
-	store, err := Load(dir, dir, false)
+	store, err := Load(dir, dir, false, TrustFolderForSession())
 	require.NoError(t, err)
 
 	// Set globalDataPath and capture snapshot
@@ -540,7 +540,7 @@ func TestSetConfigFields_AutoReloadsAtomically(t *testing.T) {
 	require.NoError(t, os.WriteFile(configPath, []byte(initialConfig), 0o600))
 
 	// Load initial config.
-	store, err := Load(dir, dir, false)
+	store, err := Load(dir, dir, false, TrustFolderForSession())
 	require.NoError(t, err)
 
 	// Set globalDataPath and capture snapshot.

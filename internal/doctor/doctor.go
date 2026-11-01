@@ -36,6 +36,15 @@ func Report(store *config.ConfigStore, lookPath func(string) (string, error)) (l
 	} else {
 		add("!", "config: no config files, defaults only")
 	}
+	switch trust := store.ProjectTrust(); {
+	case cfg.HeldProject.Holds():
+		add("!", "project settings: off, %s is not trusted (%s); %s turns them on",
+			config.ShowPath(cfg.HeldProject.Folder), cfg.HeldProject.Brief(), config.TrustCommand(cfg.HeldProject.Folder))
+	case trust.Folder != "" && trust.Session:
+		add("✓", "project settings: %s is trusted for this session", config.ShowPath(trust.Folder))
+	case trust.Folder != "" && trust.Trusted:
+		add("✓", "project settings: %s is trusted", config.ShowPath(trust.Folder))
+	}
 
 	enabled := cfg.EnabledProviders()
 	slices.SortFunc(enabled, func(a, b config.ProviderConfig) int { return strings.Compare(a.ID, b.ID) })
