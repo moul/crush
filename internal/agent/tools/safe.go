@@ -31,6 +31,10 @@ func readOnlyCommand(command string, dirs workDirs) bool {
 // around in (see eachCallIn); with none, a cd asks.
 type workDirs struct {
 	start, project string
+	// gitPrograms are the programs the project's own git config has git
+	// run when it reads the repository, in a folder not trusted (see
+	// config.ProjectSettings.GitPrograms): a line that runs git asks.
+	gitPrograms []string
 }
 
 // eachCallIn is eachCall that takes cd as Claude Code's read-only set does:
@@ -38,7 +42,9 @@ type workDirs struct {
 // let through, and any other cd asks. A line that cds into another
 // directory and runs git asks too: git in a repository other than the one
 // it was in can run a command that repository's config names
-// (core.fsmonitor, say). Each cd is resolved from where the line starts.
+// (core.fsmonitor, say). So does git in a project whose own git config
+// names such programs, until the folder is trusted. Each cd is resolved
+// from where the line starts.
 func eachCallIn(command string, dirs workDirs, callOK func(*syntax.CallExpr) bool) bool {
 	moved, git := false, false
 	ok := eachCall(command, func(call *syntax.CallExpr) bool {
@@ -53,7 +59,7 @@ func eachCallIn(command string, dirs workDirs, callOK func(*syntax.CallExpr) boo
 		}
 		return callOK(call)
 	})
-	return ok && !(moved && git)
+	return ok && !(moved && git) && !(git && len(dirs.gitPrograms) > 0)
 }
 
 // plainWords is call's words when each is plain text with nothing to

@@ -96,6 +96,9 @@ type ViewPermissionsParams struct {
 	FilePath string `json:"file_path"`
 	Offset   int    `json:"offset"`
 	Limit    int    `json:"limit"`
+	// LeadsTo is where the read really goes when FilePath is a link in
+	// the project, or runs through one, that leads out of it.
+	LeadsTo string `json:"leads_to,omitempty"`
 }
 
 type ViewResourceType string
@@ -244,7 +247,10 @@ func NewViewTool(
 						ToolName:    ViewToolName,
 						Action:      "read",
 						Description: outsideRequest("Read file", absWorkingDir, absFilePath, realFilePath),
-						Params:      ViewPermissionsParams{FilePath: params.FilePath, Offset: params.Offset, Limit: params.Limit},
+						Params: ViewPermissionsParams{
+							FilePath: params.FilePath, Offset: params.Offset, Limit: params.Limit,
+							LeadsTo: linkTarget(absWorkingDir, absFilePath, realFilePath),
+						},
 					},
 				)
 				if permReqErr != nil {

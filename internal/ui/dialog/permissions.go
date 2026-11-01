@@ -484,6 +484,9 @@ func (p *Permissions) renderHeader(contentWidth int) string {
 				lines = append(lines, p.renderKeyValue("Host", params.Host, contentWidth))
 			}
 			lines = append(lines, p.renderKeyValue("Desc", params.Description, contentWidth))
+			if params.Note != "" {
+				lines = append(lines, p.renderKeyValue("Note", params.Note, contentWidth))
+			}
 		}
 
 	case tools.DownloadToolName:
@@ -731,6 +734,9 @@ func (p *Permissions) renderViewContent(width int) string {
 	}
 
 	content := fmt.Sprintf("File: %s", fsext.PrettyPath(params.FilePath))
+	if params.LeadsTo != "" {
+		content += fmt.Sprintf("\nLeads to: %s (it is a link out of the project)", fsext.PrettyPath(params.LeadsTo))
+	}
 	if params.Offset > 1 {
 		content += fmt.Sprintf("\nStarting from line: %d", params.Offset)
 	}
@@ -748,6 +754,9 @@ func (p *Permissions) renderLSContent(width int) string {
 	}
 
 	content := fmt.Sprintf("Directory: %s", fsext.PrettyPath(params.Path))
+	if params.LeadsTo != "" {
+		content += fmt.Sprintf("\nLeads to: %s (it is a link out of the project)", fsext.PrettyPath(params.LeadsTo))
+	}
 	if len(params.Ignore) > 0 {
 		content += fmt.Sprintf("\nIgnore patterns: %s", strings.Join(params.Ignore, ", "))
 	}

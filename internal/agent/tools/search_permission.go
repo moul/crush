@@ -51,8 +51,21 @@ func outsideRequest(what, workingDir, path, real string) string {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
-	if real != path && fsext.HasPrefix(path, workingDir) {
+	if linkTarget(workingDir, path, real) != "" {
 		return fmt.Sprintf("%s outside working directory: %s (the link %s leads there)", what, real, path)
 	}
 	return fmt.Sprintf("%s outside working directory: %s", what, path)
+}
+
+// linkTarget is real, where a read of path really goes, when path lies in
+// the working directory as written and a link leads it out; "" otherwise.
+// The read and list questions show it beside the path asked for.
+func linkTarget(workingDir, path, real string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if real == path || !fsext.HasPrefix(path, workingDir) {
+		return ""
+	}
+	return real
 }

@@ -79,3 +79,22 @@ func TestBraceExpansionMakesWordsOfItsOwn(t *testing.T) {
 	require.Equal(t, []string{"git", "log", "--output=/tmp/x", "-1"}, fields)
 	require.False(t, readOnlyCommand("git log {--output=/tmp/x,-1}", workDirs{start: t.TempDir(), project: t.TempDir()}))
 }
+
+// In a project whose own git config would have git run programs, in a
+// folder not trusted, git asks however read-only the command, and the
+// question says why.
+func TestGitAsksWhereTheRepositoryRunsPrograms(t *testing.T) {
+	t.Parallel()
+	project := t.TempDir()
+	dirs := workDirs{start: project, project: project, gitPrograms: []string{"core.fsmonitor=./x.sh"}}
+	for _, command := range []string{"git status", "git log --oneline", "ls && git diff", "git log | head"} {
+		require.False(t, readOnlyCommand(command, dirs), command)
+	}
+	require.True(t, readOnlyCommand("ls", dirs))
+	require.True(t, readOnlyCommand("cat a.txt", dirs))
+	require.Contains(t, bashQuestion(BashParams{Command: "git status"}, dirs.gitPrograms).Note, "core.fsmonitor=./x.sh")
+	require.Contains(t, bashQuestion(BashParams{Command: "cd sub && git log"}, dirs.gitPrograms).Note, "not trusted")
+	require.Empty(t, bashQuestion(BashParams{Command: "ls"}, dirs.gitPrograms).Note)
+	require.Empty(t, bashQuestion(BashParams{Command: "echo digit"}, dirs.gitPrograms).Note)
+	require.Empty(t, bashQuestion(BashParams{Command: "git status"}, nil).Note)
+}

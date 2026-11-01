@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/styles"
@@ -117,4 +118,27 @@ func TestPermissions_NoSessionGrantForARequestAskedEveryTime(t *testing.T) {
 	require.Equal(t, 0, p.selectedOption, "and back")
 
 	require.Contains(t, ansi.Strip(newTestPermissions(t).renderButtons(120, false)), "Allow for Session", "offered otherwise")
+}
+
+// A read or a listing of a link that leads out of the project shows,
+// beside the path asked for, where the link leads.
+func TestPermissions_ShowWhereALinkLeads(t *testing.T) {
+	t.Parallel()
+	s := styles.CharmtonePantera()
+	com := &common.Common{Styles: &s}
+	for _, perm := range []permission.PermissionRequest{
+		{ID: "p1", ToolName: tools.ViewToolName, Path: "/home/u/.ssh/id_ed25519", Params: tools.ViewPermissionsParams{FilePath: "notes.txt", LeadsTo: "/home/u/.ssh/id_ed25519"}},
+		{ID: "p2", ToolName: tools.LSToolName, Path: "/home/u/.ssh", Params: tools.LSPermissionsParams{Path: "docs", LeadsTo: "/home/u/.ssh"}},
+	} {
+		d := NewPermissions(com, perm)
+		var text string
+		switch perm.ToolName {
+		case tools.ViewToolName:
+			text = ansi.Strip(d.renderViewContent(100))
+		default:
+			text = ansi.Strip(d.renderLSContent(100))
+		}
+		require.Contains(t, text, "Leads to: /home/u/.ssh", perm.ToolName)
+		require.Contains(t, text, "link out of the project", perm.ToolName)
+	}
 }

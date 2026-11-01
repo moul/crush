@@ -22,6 +22,7 @@ import (
 
 	"github.com/charmbracelet/crush/internal/filepathext"
 	"github.com/charmbracelet/crush/internal/fsext"
+	"github.com/charmbracelet/crush/internal/gitutil"
 	"github.com/charmbracelet/crush/internal/home"
 	"github.com/charmbracelet/crush/internal/lock"
 	"github.com/charmbracelet/crush/internal/version"
@@ -130,6 +131,12 @@ type ProjectSettings struct {
 	// files the agent would read without asking, as "folder (where it
 	// leads)".
 	Skills []string
+	// GitPrograms are the programs the git repository's own config (or a
+	// post-index-change hook) has git run when it only reads the
+	// repository, as gitutil.Programs lists them: until the folder is
+	// trusted, gnosh shows no git status and a git command of the
+	// agent's asks.
+	GitPrograms []string
 	// Other are the other settings it holds, by key.
 	Other []string
 }
@@ -138,7 +145,16 @@ type ProjectSettings struct {
 // back.
 func (p *ProjectSettings) Holds() bool {
 	return p != nil && (len(p.Scripts)+len(p.Hooks)+len(p.MCPServers)+len(p.LSPServers)+
-		len(p.Providers)+len(p.Allowed)+len(p.Env)+len(p.Hosts)+len(p.Skills)+len(p.Other)) > 0
+		len(p.Providers)+len(p.Allowed)+len(p.Env)+len(p.Hosts)+len(p.Skills)+len(p.Other)+len(p.GitPrograms)) > 0
+}
+
+// GitRuns is GitPrograms, nil for no settings: the programs a git command
+// in the project would run that wait for the folder's trust.
+func (p *ProjectSettings) GitRuns() []string {
+	if p == nil {
+		return nil
+	}
+	return p.GitPrograms
 }
 
 // Lines says what the settings would do, a line each, for the trust
@@ -177,6 +193,9 @@ func (p *ProjectSettings) Lines() []string {
 	}
 	if len(p.Other) > 0 {
 		lines = append(lines, "change other settings: "+strings.Join(p.Other, ", "))
+	}
+	if len(p.GitPrograms) > 0 {
+		lines = append(lines, "let git run what its git config names whenever git reads the repository: "+strings.Join(p.GitPrograms, ", "))
 	}
 	return lines
 }
@@ -218,7 +237,19 @@ func (p *ProjectSettings) Brief() string {
 	if len(p.Other) > 0 {
 		parts = append(parts, strings.Join(p.Other, ", "))
 	}
+	if len(p.GitPrograms) > 0 {
+		parts = append(parts, "git runs "+strings.Join(gitKeys(p.GitPrograms), ", "))
+	}
 	return strings.Join(parts, "; ")
+}
+
+// gitKeys are the settings of programs, GitPrograms, without their values.
+func gitKeys(programs []string) []string {
+	keys := make([]string, len(programs))
+	for i, program := range programs {
+		keys[i], _, _ = strings.Cut(program, "=")
+	}
+	return keys
 }
 
 // Dangers says how the settings could hurt the user if whoever wrote them
@@ -309,6 +340,9 @@ func (p *ProjectSettings) runsAsYou() string {
 	}
 	if n := len(p.LSPServers); n > 0 {
 		programs = append(programs, nounFor(n, "LSP server"))
+	}
+	if len(p.GitPrograms) > 0 {
+		programs = append(programs, "git config")
 	}
 	hidden := len(p.Providers)+len(p.Env)+len(p.RemoteMCP) > 0
 	switch {
@@ -808,6 +842,11 @@ func newProjectGate(workingDir string, trust ProjectTrust) *projectGate {
 		Home:   isHomeDir(trust.Folder),
 		InRepo: trust.InRepo,
 		Dir:    canonicalDir(workingDir),
+	}
+	if !trust.Trusted {
+		for _, program := range gitutil.Programs(workingDir) {
+			g.held.GitPrograms = append(g.held.GitPrograms, Shown(program))
+		}
 	}
 	return g
 }

@@ -109,6 +109,14 @@ func TestLinksOutOfTheProjectAreAskedAbout(t *testing.T) {
 			require.Equal(t, tc.path, asked[0].Path, "asked about where the link leads")
 			require.Contains(t, asked[0].Description, "outside working directory: "+tc.path)
 			require.Contains(t, asked[0].Description, "(the link "+project+string(filepath.Separator))
+			// The read and list questions show the path asked for, and
+			// beside it where the link leads.
+			switch params := asked[0].Params.(type) {
+			case ViewPermissionsParams:
+				require.Equal(t, tc.path, params.LeadsTo)
+			case LSPermissionsParams:
+				require.Equal(t, tc.path, params.LeadsTo)
+			}
 		})
 	}
 }

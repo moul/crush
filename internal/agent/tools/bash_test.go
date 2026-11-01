@@ -203,7 +203,7 @@ func (m *recordingPermissionService) SubscribeNotifications(ctx context.Context)
 func newBashToolForTest(workingDir string) fantasy.AgentTool {
 	permissions := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
-	return NewBashTool(permissions, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, nil)
+	return NewBashTool(permissions, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, nil, nil)
 }
 
 func newBashToolWithRecordingPerms(workingDir string, allow bool) (fantasy.AgentTool, *recordingPermissionService) {
@@ -212,7 +212,7 @@ func newBashToolWithRecordingPerms(workingDir string, allow bool) (fantasy.Agent
 		allow:  allow,
 	}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
-	return NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, nil), perms
+	return NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, nil, nil), perms
 }
 
 func TestBashTool_ChainedCommandsRequirePermission(t *testing.T) {
@@ -472,7 +472,7 @@ func TestBashTool_DenyRules(t *testing.T) {
 	workingDir := t.TempDir()
 	perms := &mockBashPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest]()}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
-	tool := NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, []string{"touch *"}, nil, nil, nil)
+	tool := NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, []string{"touch *"}, nil, nil, nil, nil)
 	require.Contains(t, tool.Info().Description, "deny, wherever they appear in a command line: touch *")
 	require.NotContains(t, newBashToolForTest(workingDir).Info().Description, "permission rules deny")
 
@@ -492,7 +492,7 @@ func TestBashTool_AllowRules(t *testing.T) {
 	workingDir := t.TempDir()
 	perms := &recordingPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest](), allow: true}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
-	tool := NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, []string{"touch *"}, nil, nil)
+	tool := NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, []string{"touch *"}, nil, nil, nil)
 	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
 	require.NoError(t, os.Mkdir(filepath.Join(workingDir, "sub"), 0o755))
 	require.NoError(t, exec.Command("git", "init", "-q", workingDir).Run(), "git status needs a repository")
@@ -559,7 +559,7 @@ func TestBashTellsTheWatcherOfBackgroundJobs(t *testing.T) {
 		return ids
 	}
 	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
-	tool := NewBashTool(permissions, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, watcher, nil)
+	tool := NewBashTool(permissions, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, watcher, nil, nil)
 
 	resp := runBashTool(t, tool, ctx, BashParams{Description: "wait", Command: "sleep 60", RunInBackground: true})
 	require.Len(t, got(), 1)
@@ -575,7 +575,7 @@ func TestBashTellsTheWatcherOfBackgroundJobs(t *testing.T) {
 	require.Contains(t, resp.Content, "Command did not complete within its 1s timeout and was moved to the background (ID: "+got()[1]+").")
 	require.Contains(t, resp.Content, "You will be told when it ends")
 
-	unwatched := NewBashTool(permissions, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, nil)
+	unwatched := NewBashTool(permissions, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, nil, nil)
 	resp = runBashTool(t, unwatched, ctx, BashParams{Description: "wait", Command: "sleep 60", RunInBackground: true})
 	require.Contains(t, resp.Content, "Call the job_output tool")
 	require.NotContains(t, resp.Content, "You will be told")

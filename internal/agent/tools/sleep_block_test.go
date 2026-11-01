@@ -64,7 +64,7 @@ func TestBashBlocksALongForegroundSleep(t *testing.T) {
 	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
 	perms := &recordingPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest](), allow: true}
 	watcher := func(context.Context, *shell.BackgroundShell) {}
-	tool := NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, watcher, nil)
+	tool := NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, watcher, nil, nil)
 
 	resp := runBashTool(t, tool, ctx, BashParams{Description: "wait", Command: "sleep 30 && tail -5 build.log"})
 	require.True(t, resp.IsError)
@@ -78,7 +78,7 @@ func TestBashBlocksALongForegroundSleep(t *testing.T) {
 	require.True(t, ok, resp.Content)
 	_ = shell.GetBackgroundShellManager().Kill(id)
 
-	unwatched := NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, nil)
+	unwatched := NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, nil, nil)
 	require.NotContains(t, unwatched.Info().Description, "is blocked")
 	short, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()

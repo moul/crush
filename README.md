@@ -462,6 +462,13 @@ Until you say yes:
 - A skills folder of the project's (`.agents/skills`, `.claude/skills` and
   the like) that links to somewhere outside the project is left out, since
   the agent reads a skill's files without asking.
+- A repository handed over with its `.git` (a download or a copy, not a
+  clone) can name in its own git config a program that git runs whenever it
+  merely reads the repository: `core.fsmonitor` runs on every `git status`,
+  and a filter, a diff driver, a signature checker or a `post-index-change`
+  hook can too. Where it does, Gnosh shows the agent no git status, and the
+  agent's git commands ask first, saying why. Your own git config is not the
+  repository's and is not looked at.
 - Its `AGENTS.md` and other context files, the skills inside it and its
   custom commands are still read, as text for the model. None of them runs
   anything.

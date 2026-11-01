@@ -1278,7 +1278,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	allTools = append(
 		allTools,
 		&changedReadFiles{
-			AgentTool: tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.DataDirectory, c.cfg.Config().Options.Attribution, modelID, c.cfg.Config().Options.GetMaxBackgroundJobs(), c.cfg.Config().Permissions.BashDenyPatterns(), c.cfg.Config().Permissions.BashAllowPatterns(), c.backgroundWatcher(isSubAgent), c.cfg.Config().Hosts),
+			AgentTool: tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.DataDirectory, c.cfg.Config().Options.Attribution, modelID, c.cfg.Config().Options.GetMaxBackgroundJobs(), c.cfg.Config().Permissions.BashDenyPatterns(), c.cfg.Config().Permissions.BashAllowPatterns(), c.backgroundWatcher(isSubAgent), c.cfg.Config().Hosts, c.cfg.Config().HeldProject.GitRuns()),
 
 			files:      c.filetracker,
 			workingDir: c.cfg.WorkingDir(),

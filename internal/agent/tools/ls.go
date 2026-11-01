@@ -27,6 +27,9 @@ type LSPermissionsParams struct {
 	Path   string   `json:"path"`
 	Ignore []string `json:"ignore"`
 	Depth  int      `json:"depth"`
+	// LeadsTo is where the listing really goes when Path is a link in the
+	// project, or runs through one, that leads out of it.
+	LeadsTo string `json:"leads_to,omitempty"`
 }
 
 type NodeType string
@@ -113,7 +116,10 @@ func NewLsTool(permissions permission.Service, workingDir string, lsConfig confi
 						ToolName:    LSToolName,
 						Action:      "list",
 						Description: outsideRequest("List directory", absWorkingDir, absSearchPath, realSearchPath),
-						Params:      LSPermissionsParams(params),
+						Params: LSPermissionsParams{
+							Path: params.Path, Ignore: params.Ignore, Depth: params.Depth,
+							LeadsTo: linkTarget(absWorkingDir, absSearchPath, realSearchPath),
+						},
 					},
 				)
 				if err != nil {

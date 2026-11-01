@@ -34,7 +34,7 @@ func newBashToolWithHosts(workingDir string, hosts config.Hosts, allow bool) (fa
 		allow:  allow,
 	}}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
-	return NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, hosts), perms
+	return NewBashTool(perms, workingDir, workingDir, attribution, "test-model", config.DefaultMaxBackgroundJobs, nil, nil, nil, hosts, nil), perms
 }
 
 // onPath puts a script of the given name first on the PATH, so a host run
@@ -182,7 +182,7 @@ func TestBashTool_HostCommandObeysTheDenyRules(t *testing.T) {
 	perms := &recordingPermissionService{Broker: pubsub.NewBroker[permission.PermissionRequest](), allow: true}
 	attribution := &config.Attribution{TrailerStyle: config.TrailerStyleNone}
 	hosts := config.Hosts{"render": {SSH: "root@203.0.113.10"}}
-	tool := NewBashTool(perms, t.TempDir(), t.TempDir(), attribution, "test-model", config.DefaultMaxBackgroundJobs, []string{"rm -rf *"}, nil, nil, hosts)
+	tool := NewBashTool(perms, t.TempDir(), t.TempDir(), attribution, "test-model", config.DefaultMaxBackgroundJobs, []string{"rm -rf *"}, nil, nil, hosts, nil)
 
 	resp := runBashTool(t, tool, sessionCtx(), BashParams{Command: "ls /root/renders; rm -rf /root/renders", Host: "render"})
 	require.True(t, resp.IsError, resp.Content)

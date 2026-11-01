@@ -703,3 +703,32 @@ func TestKeptIsExactlyUntrustedKept(t *testing.T) {
 	}
 	require.ElementsMatch(t, untrustedKept, paths)
 }
+
+// A repository whose own git config has git run a program when git only
+// reads it (core.fsmonitor runs on every git status) holds that back until
+// the folder is trusted: the question lists it, and says what could go
+// wrong; once trusted, git runs as it is.
+func TestUntrustedRepositoryGitProgramsAreHeld(t *testing.T) {
+	requireGit(t)
+	dir := isolateTrust(t)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	git(t, dir, "init", "-q")
+	git(t, dir, "config", "core.fsmonitor", "./x.sh")
+
+	store, err := LoadFiles(dir, "", false)
+	require.NoError(t, err)
+	held := store.Config().HeldProject
+	require.Equal(t, []string{"core.fsmonitor=./x.sh"}, held.GitRuns())
+	require.Contains(t, held.Lines(), "let git run what its git config names whenever git reads the repository: core.fsmonitor=./x.sh")
+	require.Contains(t, held.Brief(), "git runs core.fsmonitor")
+	require.True(t, strings.HasPrefix(held.Dangers()[0], "Its git config would run as you: "), held.Dangers()[0])
+
+	settings, trusted, err := ScanProject(dir, "")
+	require.NoError(t, err)
+	require.False(t, trusted)
+	require.Equal(t, held.GitPrograms, settings.GitPrograms)
+
+	store, err = LoadFiles(dir, "", false, TrustFolderForSession())
+	require.NoError(t, err)
+	require.Nil(t, store.Config().HeldProject.GitRuns(), "a trusted folder's git runs as it is")
+}

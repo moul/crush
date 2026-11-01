@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -96,6 +97,26 @@ type BashPermissionsParams struct {
 	RunInBackground     bool   `json:"run_in_background"`
 	AutoBackgroundAfter int    `json:"auto_background_after"`
 	Timeout             int    `json:"timeout"`
+	// Note is what the question says besides: that git in this folder,
+	// not trusted, would run the programs its git config names.
+	Note string `json:"note,omitempty"`
+}
+
+// gitWord finds git run as a command in a command line.
+var gitWord = regexp.MustCompile(`(^|[\s;&|(])git(\s|$)`)
+
+// bashQuestion is what the permission question for params shows: the
+// call, and a note when it runs git in a project whose git config would
+// have git run programs, in a folder not trusted.
+func bashQuestion(params BashParams, gitPrograms []string) BashPermissionsParams {
+	q := BashPermissionsParams{
+		Description: params.Description, Command: params.Command, Host: params.Host, WorkingDir: params.WorkingDir,
+		RunInBackground: params.RunInBackground, AutoBackgroundAfter: params.AutoBackgroundAfter, Timeout: params.Timeout,
+	}
+	if params.Host == "" && len(gitPrograms) > 0 && gitWord.MatchString(params.Command) {
+		q.Note = "This folder is not trusted, and its git config has git run programs as you: " + strings.Join(gitPrograms, ", ")
+	}
+	return q
 }
 
 type BashResponseMetadata struct {
@@ -307,7 +328,7 @@ type BackgroundWatcher func(ctx context.Context, job *shell.BackgroundShell)
 // NewBashTool runs shell commands. onBackground, when not nil, is told of
 // each command that becomes a background job, and the result then says
 // the agent will be told when it ends.
-func NewBashTool(permissions permission.Service, workingDir, spillDir string, attribution *config.Attribution, modelID string, maxBackgroundJobs int, denyRules, allowRules []string, onBackground BackgroundWatcher, hosts config.Hosts) fantasy.AgentTool {
+func NewBashTool(permissions permission.Service, workingDir, spillDir string, attribution *config.Attribution, modelID string, maxBackgroundJobs int, denyRules, allowRules []string, onBackground BackgroundWatcher, hosts config.Hosts, gitPrograms []string) fantasy.AgentTool {
 	allowed := commandRules(allowRules)
 	return fantasy.NewAgentTool(
 		BashToolName,
@@ -367,7 +388,7 @@ func NewBashTool(permissions permission.Service, workingDir, spillDir string, at
 				return job.WorkingDir
 			}
 
-			dirs := workDirs{start: execWorkingDir, project: workingDir}
+			dirs := workDirs{start: execWorkingDir, project: workingDir, gitPrograms: gitPrograms}
 			isSafeReadOnly := !remote && (readOnlyCommand(params.Command, dirs) || allowedCommand(params.Command, dirs, allowed))
 
 			sessionID := GetSessionFromContext(ctx)
@@ -390,7 +411,7 @@ func NewBashTool(permissions permission.Service, workingDir, spillDir string, at
 						ToolName:    BashToolName,
 						Action:      "execute",
 						Description: description,
-						Params:      BashPermissionsParams(params),
+						Params:      bashQuestion(params, gitPrograms),
 					},
 				)
 				if err != nil {

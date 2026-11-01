@@ -532,7 +532,12 @@ func (p *Prompt) promptData(ctx context.Context, provider, model string, store *
 		AvailSkillXML: availSkillXML,
 		Skills:        allSkills,
 	}
-	if isGit {
+	switch runs := cfg.HeldProject.GitRuns(); {
+	case isGit && len(runs) > 0:
+		// git status would run them: the folder's own git config names
+		// programs, and the folder is not trusted.
+		data.GitStatus = getGitBranch(store.WorkingDir()) + untrustedGitStatus(runs)
+	case isGit:
 		var err error
 		data.GitStatus, err = getGitStatus(ctx, store.WorkingDir())
 		if err != nil {
@@ -580,8 +585,23 @@ func getGitBranch(dir string) string {
 	return fmt.Sprintf("Current branch: %s\n", branch)
 }
 
+// untrustedGitStatus is what the prompt says for the status of a
+// repository whose own git config would have git run programs, runs, in a
+// folder not trusted: not read, and why, so the agent knows its git
+// commands will ask.
+func untrustedGitStatus(runs []string) string {
+	keys := make([]string, len(runs))
+	for i, run := range runs {
+		keys[i], _, _ = strings.Cut(run, "=")
+	}
+	return fmt.Sprintf("Status: not read. This folder is not trusted, and the repository's own git config would have git run programs (%s), so git commands ask the user first.\n",
+		strings.Join(keys, ", "))
+}
+
 func getGitStatusSummary(ctx context.Context, sh *shell.Shell) (string, error) {
-	out, _, err := sh.Exec(ctx, "git status --short 2>/dev/null | head -20")
+	// --no-optional-locks: status writes no index, which would run a
+	// post-index-change hook.
+	out, _, err := sh.Exec(ctx, "git --no-optional-locks status --short 2>/dev/null | head -20")
 	if err != nil {
 		return "", nil
 	}
@@ -593,7 +613,7 @@ func getGitStatusSummary(ctx context.Context, sh *shell.Shell) (string, error) {
 }
 
 func getGitRecentCommits(ctx context.Context, sh *shell.Shell) (string, error) {
-	out, _, err := sh.Exec(ctx, "git log --oneline -n 3 2>/dev/null")
+	out, _, err := sh.Exec(ctx, "git --no-optional-locks log --oneline --no-show-signature -n 3 2>/dev/null")
 	if err != nil || out == "" {
 		return "", nil
 	}
