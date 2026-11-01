@@ -14,10 +14,17 @@ import (
 )
 
 // retrySleep is the interval between non-blocking lock retries in the
-// blocking File path.
+// blocking File path. (Unix waits in the kernel; Windows still polls.)
 const retrySleep = 100 * time.Millisecond
 
-func lockFile(ctx context.Context, f *os.File) (func(), error) {
+// lockFile polls for the lock until ctx ends. On error it closes f, as the
+// Unix one does.
+func lockFile(ctx context.Context, f *os.File) (_ func(), err error) {
+	defer func() {
+		if err != nil {
+			f.Close()
+		}
+	}()
 	h := windows.Handle(f.Fd())
 	for {
 		ol := new(windows.Overlapped)

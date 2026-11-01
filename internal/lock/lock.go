@@ -1,10 +1,11 @@
 // Package lock provides cross-process advisory file locking.
 //
 // File acquires an exclusive lock on the file at path, blocking until
-// the context is cancelled (or its deadline elapses). TryFile does the
-// same but returns ErrContended immediately if the lock is already
-// held. In both cases the returned release function drops the lock and
-// closes the underlying file descriptor.
+// the context is cancelled (or its deadline elapses). On Unix the wait is
+// the kernel's: a blocking flock, woken the moment the holder lets go, with
+// no polling. TryFile does the same but returns ErrContended immediately
+// if the lock is already held. In both cases the returned release function
+// drops the lock and closes the underlying file descriptor.
 //
 // The lock is released automatically by the kernel on process
 // termination (including crash), so no stale-lock recovery is needed.
@@ -41,9 +42,10 @@ func File(ctx context.Context, path string) (func(), error) {
 		return nil, fmt.Errorf("open lock file %q: %w", path, err)
 	}
 
+	// On failure lockFile closes f itself, at once or, for a wait the
+	// context ended, once the kernel grants the lock.
 	release, err := lockFile(ctx, f)
 	if err != nil {
-		f.Close()
 		return nil, err
 	}
 

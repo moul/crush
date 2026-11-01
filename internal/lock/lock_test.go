@@ -166,3 +166,57 @@ func TestFile_ConcurrentAcquirers(t *testing.T) {
 	require.Equal(t, n, finished)
 	require.Equal(t, 1, maxSeen, "lock must be mutually exclusive")
 }
+
+// TestFile_WakesAtRelease: a waiter is woken by the release itself, not by
+// a poll: it gets the lock within milliseconds of the holder letting go.
+func TestFile_WakesAtRelease(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "test.lock")
+
+	release, err := TryFile(path)
+	require.NoError(t, err)
+
+	got := make(chan time.Time, 1)
+	go func() {
+		r, err := File(context.Background(), path)
+		if err == nil {
+			got <- time.Now()
+			r()
+		}
+	}()
+	time.Sleep(100 * time.Millisecond)
+	let := time.Now()
+	release()
+	select {
+	case at := <-got:
+		require.Less(t, at.Sub(let), 50*time.Millisecond, "woken by the release")
+	case <-time.After(2 * time.Second):
+		t.Fatal("the waiter never got the lock")
+	}
+}
+
+// TestFile_GivenUpWaitLetsGo: a wait whose context ended takes the lock
+// when the holder lets go and drops it at once, so the next one gets it.
+func TestFile_GivenUpWaitLetsGo(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "test.lock")
+
+	release, err := TryFile(path)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := File(ctx, path)
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+	release()
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	r, err := File(ctx2, path)
+	require.NoError(t, err, "the given-up wait dropped the lock it was granted")
+	r()
+}
