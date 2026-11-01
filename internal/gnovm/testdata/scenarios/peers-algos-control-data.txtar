@@ -1,0 +1,497 @@
+The control for peers-algos (PARALLEL.md, C): the data part of its plan
+alone, on a copy of the whole project with a mem of its own. The three
+controls run at once show how fast three sessions do the three groups on
+this box with no plan shared.
+
+-- mem --
+c := mem.Todo("data: lru, intervals and topo").Parallel()
+c.Todo("write the LRU Cache in lru/lru.go (its check: go test ./lru/)")
+c.Todo("write Merge in intervals/intervals.go (its check: go test ./intervals/)")
+c.Todo("write Sort in topo/topo.go (its check: go test ./topo/)")
+-- prompt-new --
+Work through the plan in mem until nothing is left for you.
+-- check --
+cmd go test ./lru/ ./intervals/ ./topo/
+cmd echo '0c17f32e3795f05fcd6c8cc73249a0c3b841d8d134f4ad0376a9dca0f301d77b  lru/lru_test.go' | sha256sum -c --quiet
+cmd echo '392b1dce39eb25633a375403191a59a283b142be4f390723b5fe64aa42ba9784  intervals/intervals_test.go' | sha256sum -c --quiet
+cmd echo '00d3ace9ee2b45dd6f976a429524a22b395dc8df63325f2310bfeae9cde30b66  topo/topo_test.go' | sha256sum -c --quiet
+mem-count done >= 4
+mem-count open == 0
+-- project/csvline/csvline.go --
+package csvline
+
+// Parse splits one CSV line into its fields. Fields are separated by
+// commas; a field in double quotes may hold commas, and "" inside quotes
+// is one ". Quotes in an unquoted field are kept as they are. An
+// unterminated quoted field, or text after a closing quote other than a
+// comma, is an error. An empty line is one empty field.
+func Parse(line string) ([]string, error) {
+	panic("todo")
+}
+-- project/csvline/csvline_test.go --
+package csvline
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestParse(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want []string
+	}{
+		{"a,b,c", []string{"a", "b", "c"}},
+		{"", []string{""}},
+		{",", []string{"", ""}},
+		{`"a,b",c`, []string{"a,b", "c"}},
+		{`"say ""hi""",x`, []string{`say "hi"`, "x"}},
+		{`a"b,c`, []string{`a"b`, "c"}},
+		{`"",""`, []string{"", ""}},
+		{` a , b `, []string{" a ", " b "}},
+		{`"x"`, []string{"x"}},
+		{`1,"two, three",4`, []string{"1", "two, three", "4"}},
+	} {
+		got, err := Parse(tc.in)
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Parse(%q) = %q, %v; want %q", tc.in, got, err, tc.want)
+		}
+	}
+	for _, in := range []string{`"abc`, `"a"b,c`, `x,"unterminated`} {
+		if _, err := Parse(in); err == nil {
+			t.Errorf("Parse(%q): want an error", in)
+		}
+	}
+}
+-- project/eval/eval.go --
+package eval
+
+// Eval computes an arithmetic expression of decimal numbers (like 3, 0.5,
+// 12.25), + - * /, parentheses and unary minus, with the usual precedence
+// (* and / before + and -, left to right) and any spaces. Division by
+// zero, an empty expression, unbalanced parentheses, a missing operand or
+// any other character is an error.
+func Eval(expr string) (float64, error) {
+	panic("todo")
+}
+-- project/eval/eval_test.go --
+package eval
+
+import (
+	"math"
+	"testing"
+)
+
+func TestEval(t *testing.T) {
+	for in, want := range map[string]float64{
+		"1+2":                 3,
+		"2*3+4":               10,
+		"2+3*4":               14,
+		"(2+3)*4":             20,
+		"10/4":                2.5,
+		"8-3-2":               3,
+		"16/4/2":              2,
+		"-3+5":                2,
+		"-(2+3)*2":            -10,
+		"2*-3":                -6,
+		" 1 + 2 * ( 3 - 1 ) ": 5,
+		"0.5*0.5":             0.25,
+		"((((7))))":           7,
+		"1.25+2.75":           4,
+		"--4":                 4,
+	} {
+		got, err := Eval(in)
+		if err != nil || math.Abs(got-want) > 1e-9 {
+			t.Errorf("Eval(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "1+", "(1+2", "1+2)", "2*/3", "1/0", "4 5", "a+1", "()", "3+(4*)"} {
+		if _, err := Eval(in); err == nil {
+			t.Errorf("Eval(%q): want an error", in)
+		}
+	}
+}
+-- project/frac/frac.go --
+package frac
+
+// Frac is a fraction in lowest terms with a positive denominator.
+type Frac struct{ Num, Den int64 }
+
+// New makes num/den in lowest terms, the sign on the numerator: New(2, -4)
+// is -1/2. A zero denominator panics.
+func New(num, den int64) Frac {
+	panic("todo")
+}
+
+// Add, Sub, Mul and Div compute in lowest terms; Div by zero panics.
+func (a Frac) Add(b Frac) Frac { panic("todo") }
+func (a Frac) Sub(b Frac) Frac { panic("todo") }
+func (a Frac) Mul(b Frac) Frac { panic("todo") }
+func (a Frac) Div(b Frac) Frac { panic("todo") }
+
+// String is "3/4", "-1/2", or "2" when the denominator is 1.
+func (a Frac) String() string { panic("todo") }
+-- project/frac/frac_test.go --
+package frac
+
+import "testing"
+
+func TestFrac(t *testing.T) {
+	for _, tc := range []struct {
+		got  Frac
+		want string
+	}{
+		{New(2, 4), "1/2"},
+		{New(2, -4), "-1/2"},
+		{New(-6, -3), "2"},
+		{New(0, 5), "0"},
+		{New(1, 2).Add(New(1, 3)), "5/6"},
+		{New(1, 2).Sub(New(3, 4)), "-1/4"},
+		{New(2, 3).Mul(New(9, 4)), "3/2"},
+		{New(1, 2).Div(New(1, 4)), "2"},
+		{New(-3, 7).Div(New(3, -14)), "2"},
+		{New(1, 6).Add(New(1, 6)).Add(New(1, 6)), "1/2"},
+	} {
+		if s := tc.got.String(); s != tc.want {
+			t.Errorf("got %s (%+v), want %s", s, tc.got, tc.want)
+		}
+	}
+	if f := New(4, -6); f.Num != -2 || f.Den != 3 {
+		t.Errorf("New(4, -6) = %+v, want {-2 3}", f)
+	}
+	for _, f := range []func(){func() { New(1, 0) }, func() { New(1, 2).Div(New(0, 1)) }} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Error("want a panic")
+				}
+			}()
+			f()
+		}()
+	}
+}
+-- project/go.mod --
+module algos
+
+go 1.22
+-- project/intervals/intervals.go --
+package intervals
+
+// Merge merges intervals [start, end] (start <= end, ends included) that
+// overlap or touch, like [1,3] and [3,5], or [1,3] and [4,6] which leave no
+// integer between them, and returns them sorted by start. The input is not
+// changed; nil or empty input gives an empty result. An interval with
+// start > end is skipped.
+func Merge(in [][2]int) [][2]int {
+	panic("todo")
+}
+-- project/intervals/intervals_test.go --
+package intervals
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestMerge(t *testing.T) {
+	for _, tc := range []struct {
+		in, want [][2]int
+	}{
+		{nil, [][2]int{}},
+		{[][2]int{{1, 3}}, [][2]int{{1, 3}}},
+		{[][2]int{{1, 3}, {2, 6}, {8, 10}, {15, 18}}, [][2]int{{1, 6}, {8, 10}, {15, 18}}},
+		{[][2]int{{1, 3}, {4, 6}}, [][2]int{{1, 6}}},
+		{[][2]int{{1, 3}, {5, 6}}, [][2]int{{1, 3}, {5, 6}}},
+		{[][2]int{{5, 6}, {1, 2}, {2, 4}}, [][2]int{{1, 6}}},
+		{[][2]int{{1, 10}, {2, 3}, {4, 5}}, [][2]int{{1, 10}}},
+		{[][2]int{{-5, -1}, {0, 0}, {3, 2}}, [][2]int{{-5, 0}}},
+		{[][2]int{{7, 7}, {7, 7}}, [][2]int{{7, 7}}},
+	} {
+		in := append([][2]int(nil), tc.in...)
+		got := Merge(tc.in)
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Merge(%v) = %v, want %v", tc.in, got, tc.want)
+		}
+		if !reflect.DeepEqual(in, tc.in) {
+			t.Errorf("Merge changed its input: %v", tc.in)
+		}
+	}
+}
+-- project/lru/lru.go --
+package lru
+
+// Cache is a least-recently-used cache of string keys and int values that
+// holds at most its capacity: putting a new key into a full cache first
+// evicts the key used least recently (by Get or Put).
+type Cache struct {
+	// your fields
+}
+
+// New makes an empty cache of the given capacity (at least 1).
+func New(capacity int) *Cache {
+	panic("todo")
+}
+
+// Get returns the value for key and whether it was there, and marks key
+// as just used.
+func (c *Cache) Get(key string) (int, bool) {
+	panic("todo")
+}
+
+// Put sets key to value, marks it just used, and evicts if needed.
+func (c *Cache) Put(key string, value int) {
+	panic("todo")
+}
+
+// Len is how many keys the cache holds.
+func (c *Cache) Len() int {
+	panic("todo")
+}
+-- project/lru/lru_test.go --
+package lru
+
+import "testing"
+
+func TestCache(t *testing.T) {
+	c := New(2)
+	c.Put("a", 1)
+	c.Put("b", 2)
+	if v, ok := c.Get("a"); !ok || v != 1 {
+		t.Fatalf("Get(a) = %d, %v", v, ok)
+	}
+	c.Put("c", 3) // evicts b, the least recently used
+	if _, ok := c.Get("b"); ok {
+		t.Fatal("b should have been evicted")
+	}
+	if v, ok := c.Get("c"); !ok || v != 3 {
+		t.Fatalf("Get(c) = %d, %v", v, ok)
+	}
+	c.Put("a", 10) // update, a is now most recent
+	c.Put("d", 4)  // evicts c
+	if _, ok := c.Get("c"); ok {
+		t.Fatal("c should have been evicted")
+	}
+	if v, _ := c.Get("a"); v != 10 {
+		t.Fatalf("Get(a) = %d, want 10", v)
+	}
+	if c.Len() != 2 {
+		t.Fatalf("Len = %d, want 2", c.Len())
+	}
+
+	big := New(100)
+	for i := 0; i < 1000; i++ {
+		big.Put(string(rune('a'+i%26))+string(rune('A'+i/26%26)), i)
+	}
+	if big.Len() != 100 {
+		t.Fatalf("Len = %d, want 100", big.Len())
+	}
+	one := New(1)
+	one.Put("x", 1)
+	one.Put("y", 2)
+	if _, ok := one.Get("x"); ok || one.Len() != 1 {
+		t.Fatal("capacity 1 should hold only y")
+	}
+}
+-- project/roman/roman.go --
+package roman
+
+// ToRoman writes n (1 to 3999) in Roman numerals, the subtractive way:
+// 4 is IV, 9 is IX, 40 is XL, 90 is XC, 400 is CD, 900 is CM. Any other n
+// is an error.
+func ToRoman(n int) (string, error) {
+	panic("todo")
+}
+
+// FromRoman reads a Roman numeral written as ToRoman writes it, and only
+// that way: "IIII", "IC", "VX", lower case or an empty string are errors.
+func FromRoman(s string) (int, error) {
+	panic("todo")
+}
+-- project/roman/roman_test.go --
+package roman
+
+import "testing"
+
+func TestToRoman(t *testing.T) {
+	for n, want := range map[int]string{1: "I", 4: "IV", 9: "IX", 14: "XIV", 40: "XL", 90: "XC", 400: "CD", 1994: "MCMXCIV", 2026: "MMXXVI", 3999: "MMMCMXCIX"} {
+		if got, err := ToRoman(n); err != nil || got != want {
+			t.Errorf("ToRoman(%d) = %q, %v; want %q", n, got, err, want)
+		}
+	}
+	for _, n := range []int{0, -1, 4000} {
+		if _, err := ToRoman(n); err == nil {
+			t.Errorf("ToRoman(%d): want an error", n)
+		}
+	}
+}
+
+func TestFromRoman(t *testing.T) {
+	for n := 1; n <= 3999; n++ {
+		s, _ := ToRoman(n)
+		if got, err := FromRoman(s); err != nil || got != n {
+			t.Fatalf("FromRoman(%q) = %d, %v; want %d", s, got, err, n)
+		}
+	}
+	for _, s := range []string{"", "IIII", "IC", "VX", "MMMM", "xiv", "IIV", "XM", "VV", "ABC"} {
+		if _, err := FromRoman(s); err == nil {
+			t.Errorf("FromRoman(%q): want an error", s)
+		}
+	}
+}
+-- project/rpn/rpn.go --
+package rpn
+
+// ToRPN turns an infix expression of integers, + - * / and parentheses
+// into Reverse Polish notation, one token per element: "3 + 4 * 2" gives
+// ["3" "4" "2" "*" "+"]. Operators of equal precedence go left to right.
+// Spaces between tokens do not matter. Unbalanced parentheses, an
+// operator without operands or any other character is an error.
+func ToRPN(expr string) ([]string, error) {
+	panic("todo")
+}
+
+// EvalRPN computes RPN tokens as ToRPN writes them, with integer division
+// truncating toward zero. Too few operands, leftover operands, division by
+// zero or an unknown token is an error.
+func EvalRPN(tokens []string) (int, error) {
+	panic("todo")
+}
+-- project/rpn/rpn_test.go --
+package rpn
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestToRPN(t *testing.T) {
+	for in, want := range map[string][]string{
+		"3+4":       {"3", "4", "+"},
+		"3 + 4 * 2": {"3", "4", "2", "*", "+"},
+		"(3+4)*2":   {"3", "4", "+", "2", "*"},
+		"10-4-3":    {"10", "4", "-", "3", "-"},
+		"8/2/2":     {"8", "2", "/", "2", "/"},
+		"2*(3+4)*5": {"2", "3", "4", "+", "*", "5", "*"},
+		"((12))":    {"12"},
+		"1+2*3-4/2": {"1", "2", "3", "*", "+", "4", "2", "/", "-"},
+	} {
+		got, err := ToRPN(in)
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("ToRPN(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "(1+2", "1+2)", "1+", "*2", "1 2", "1+a"} {
+		if _, err := ToRPN(in); err == nil {
+			t.Errorf("ToRPN(%q): want an error", in)
+		}
+	}
+}
+
+func TestEvalRPN(t *testing.T) {
+	for in, want := range map[string]int{"3+4*2": 11, "(3+4)*2": 14, "10-4-3": 3, "7/2": 3, "1+2*3-4/2": 5} {
+		toks, err := ToRPN(in)
+		if err != nil {
+			t.Fatalf("ToRPN(%q): %v", in, err)
+		}
+		if got, err := EvalRPN(toks); err != nil || got != want {
+			t.Errorf("EvalRPN(%q) = %d, %v; want %d", toks, got, err, want)
+		}
+	}
+	for _, toks := range [][]string{{"1", "+"}, {"1", "2"}, {"1", "0", "/"}, {"1", "2", "^"}, {}} {
+		if _, err := EvalRPN(toks); err == nil {
+			t.Errorf("EvalRPN(%q): want an error", toks)
+		}
+	}
+}
+-- project/topo/topo.go --
+package topo
+
+// Sort orders the keys of deps so that every key comes after the keys it
+// depends on (deps[k] lists k's dependencies). A dependency that is not a
+// key is a key with no dependencies of its own. Among keys that are ready
+// at the same time, the alphabetically first comes first, so the order is
+// always the same. A cycle is an error.
+func Sort(deps map[string][]string) ([]string, error) {
+	panic("todo")
+}
+-- project/topo/topo_test.go --
+package topo
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestSort(t *testing.T) {
+	for _, tc := range []struct {
+		deps map[string][]string
+		want []string
+	}{
+		{map[string][]string{}, []string{}},
+		{map[string][]string{"a": nil}, []string{"a"}},
+		{map[string][]string{"b": {"a"}}, []string{"a", "b"}},
+		{map[string][]string{"c": {"a", "b"}, "b": {"a"}}, []string{"a", "b", "c"}},
+		{map[string][]string{"x": nil, "b": nil, "a": nil}, []string{"a", "b", "x"}},
+		{map[string][]string{"app": {"lib", "log"}, "lib": {"log"}, "test": {"app"}}, []string{"log", "lib", "app", "test"}},
+		{map[string][]string{"d": {"b", "c"}, "c": {"a"}, "b": {"a"}}, []string{"a", "b", "c", "d"}},
+	} {
+		got, err := Sort(tc.deps)
+		if err != nil || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Sort(%v) = %v, %v; want %v", tc.deps, got, err, tc.want)
+		}
+	}
+	for _, deps := range []map[string][]string{{"a": {"a"}}, {"a": {"b"}, "b": {"a"}}, {"a": {"b"}, "b": {"c"}, "c": {"a"}, "d": nil}} {
+		if _, err := Sort(deps); err == nil {
+			t.Errorf("Sort(%v): want a cycle error", deps)
+		}
+	}
+}
+-- project/wrap/wrap.go --
+package wrap
+
+// Wrap breaks s into lines of at most width characters (runes), at spaces:
+// words keep their order, runs of spaces and newlines between words count
+// as one space, and no line starts or ends with a space. A word longer
+// than width is cut into pieces of width runes. An empty or all-space s
+// gives no lines. width < 1 panics.
+func Wrap(s string, width int) []string {
+	panic("todo")
+}
+-- project/wrap/wrap_test.go --
+package wrap
+
+import (
+	"reflect"
+	"testing"
+)
+
+func TestWrap(t *testing.T) {
+	for _, tc := range []struct {
+		s     string
+		width int
+		want  []string
+	}{
+		{"the quick brown fox", 10, []string{"the quick", "brown fox"}},
+		{"the quick brown fox", 9, []string{"the quick", "brown fox"}},
+		{"the quick brown fox", 5, []string{"the", "quick", "brown", "fox"}},
+		{"  lots   of\n spaces  ", 20, []string{"lots of spaces"}},
+		{"abcdefghij", 4, []string{"abcd", "efgh", "ij"}},
+		{"a abcdefghij b", 4, []string{"a", "abcd", "efgh", "ij b"}},
+		{"héllo wörld", 5, []string{"héllo", "wörld"}},
+		{"", 3, nil},
+		{"   ", 3, nil},
+		{"one", 3, []string{"one"}},
+		{"one two", 7, []string{"one two"}},
+		{"one two", 6, []string{"one", "two"}},
+	} {
+		if got := Wrap(tc.s, tc.width); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("Wrap(%q, %d) = %q, want %q", tc.s, tc.width, got, tc.want)
+		}
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("Wrap with width 0 did not panic")
+		}
+	}()
+	Wrap("x", 0)
+}
