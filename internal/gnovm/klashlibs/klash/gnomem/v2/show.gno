@@ -242,6 +242,9 @@ func (m *Mem) aside(name string, it *Todo, top bool) string {
 		}
 		parts = append(parts, who(it.By), ago(it.Changed))
 	}
+	if it.Status == "" && it.Parallel {
+		parts = append(parts, "its todos at once")
+	}
 	if it.Status == "" {
 		switch {
 		case it.Wait != "" && !m.waiting(it):

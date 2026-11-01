@@ -212,27 +212,14 @@ func (m *Mem) waitsAbove(id string) bool {
 	return false
 }
 
-// nextTodo is Frame.NextTodo for frame id.
+// nextTodo is Frame.NextTodo for frame id: the pick, entering a todo with
+// todos under it (peers.gno).
 func (m *Mem) nextTodo(id string) *Frame {
-	if id == "" {
+	if id == "" || m.get(id) == nil {
 		return nil
 	}
-	it := m.get(id)
-	if it == nil {
-		return nil
-	}
-	me := caller()
-	for _, s := range it.Steps {
-		step := id + "/" + s
-		st := m.get(step)
-		switch m.state(step, st) {
-		case "open":
-			return m.shallow(step)
-		case "doing":
-			if st.Doing == me {
-				return m.shallow(step)
-			}
-		}
+	if n := m.pickFor(id, caller(), true, nil); n != "" {
+		return m.shallow(n)
 	}
 	return nil
 }
@@ -341,6 +328,12 @@ func (m *Mem) addStep(parent, id, title string) {
 // needs no name. When there is none it is a kept no-op that says what to do
 // instead. A particular frame is entered with .Push() on it:
 // mem.Todo("…").Push(), mem.Frame(id).Push(), mem.Thought("port").Push().
+//
+// With other sessions working on the plan, a Next that has nothing for you
+// now waits for them when it can (only a bare mem.Next() ending the input),
+// when you would have a todo, or could pop the frame you stand in, once
+// they finish: it prints nothing, and gnosh runs it again when mem changes
+// (PARALLEL.md).
 func (m *Mem) Next() {
 	p := m.present()
 	if p == "" {
@@ -352,6 +345,21 @@ func (m *Mem) Next() {
 		m.push(f.Id, "")
 		return
 	}
+	if mayWait() {
+		anchor, enter := p, true
+		if p == "" {
+			anchor, enter = m.newestOpen(), false
+		}
+		if anchor != "" && (p == "" || m.get(p).OpenSteps > 0) {
+			if held := m.waitsFor(anchor, caller(), enter); len(held) > 0 {
+				for _, n := range held {
+					waitOn(n, m.get(n).Doing)
+				}
+				pushed("", "")
+				return
+			}
+		}
+	}
 	pushed("", "")
 	println(m.nothingNext())
 }
@@ -361,11 +369,7 @@ func (m *Mem) Next() {
 // order, or that task itself when it is free and has no open todo; "" when
 // there is none.
 func (m *Mem) nextAtRoot() string {
-	newest := ""
-	m.open.ReverseIterate("", "", func(_ string, v any) bool {
-		newest = v.(string)
-		return true
-	})
+	newest := m.newestOpen()
 	if newest == "" {
 		return ""
 	}
@@ -418,6 +422,35 @@ func (m *Mem) push(id, thought string) {
 	}
 	pushed(id, it.Title)
 	println(pushText(id, it.Title, thought))
+	if others := m.doneByOthers(id, me); others != "" {
+		print(others)
+	}
+}
+
+// Parallel says the todos under the todo may be done at once, in any order,
+// by any session; what must follow them is the todo's own work, done before
+// it is popped. One session takes them in order either way. It returns the
+// todo, so it chains: mem.Todo("build the shapes").Parallel().
+func (f *Frame) Parallel() *Frame {
+	if f == nil || f.m == nil || f.Id == "" {
+		panic("no todo to make parallel: mem.Todo(task) makes one")
+	}
+	f.m.parallel(f.Id)
+	return f
+}
+
+// parallel marks open todo id's todos as ones that may be done at once.
+func (m *Mem) parallel(id string) {
+	it := m.openItem(id)
+	if it.For != "" {
+		panic(ref(id, it.Title) + " is asked of the user: it has no todos")
+	}
+	if it.Parallel {
+		println("`" + id + "`'s todos may already be done at once")
+		return
+	}
+	m.do(Op{Kind: "set", Name: id, Field: "parallel", New: "yes"})
+	println("`" + id + "`'s todos may be done at once, by any session")
 }
 
 // pushText is what a push says: where the model is, and what a pop will do.
@@ -628,6 +661,9 @@ func (m *Mem) pop(id string, it *Todo, result string, dropped bool) {
 		return
 	}
 	if it.OpenSteps > 0 {
+		if w := m.workers(id, caller()); w != "" {
+			panic(ref(id, it.Title) + " has open todos " + m.refs(m.openSteps(id)) + ", which " + w + " works on now: mem.Next() waits for them")
+		}
 		panic(ref(id, it.Title) + " has open todos " + m.refs(m.openSteps(id)) + ": push and pop them, or drop them, first")
 	}
 	if it.Wait != "" {

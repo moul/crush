@@ -197,6 +197,10 @@ func (m *Mem) applySet(op Op, at int64) {
 		cur = it.For
 	case "doing":
 		cur = it.Doing
+	case "parallel":
+		if it.Parallel {
+			cur = "yes"
+		}
 	default:
 		panic("apply: unknown field " + strconv.Quote(op.Field))
 	}
@@ -223,7 +227,12 @@ func (m *Mem) applySet(op Op, at int64) {
 		}
 		it.For = op.New
 	case "doing":
+		if op.New == "" && op.Old != "" {
+			it.Did = op.Old
+		}
 		it.Doing = op.New
+	case "parallel":
+		it.Parallel = op.New == "yes"
 	}
 }
 

@@ -55,6 +55,18 @@ type memContext struct {
 	// nothing. holding is also handed the Ops this call has made so far.
 	find    func(words string, max int) (names, kinds []string, how string)
 	holding func(text string, ops []memOp) (names, kinds []string, statements bool)
+	// working says whether another session is working on a todo now
+	// (PARALLEL.md); nil: none is. mayWait is whether the input's Next may
+	// wait for them; waits is where it says what it waits for.
+	working func(session, id string) bool
+	mayWait bool
+	waits   *[]memWait
+}
+
+// memWait is a todo a waiting Next waits for, and the session that holds it.
+type memWait struct {
+	Id      string `json:"id"`
+	Session string `json:"session"`
 }
 
 // memOp is one change to a mem, as gnomem's do hands it to gnosh and the
@@ -72,7 +84,7 @@ type memOp struct {
 var memNativeGas = gno.NativeGasInfo{Base: 1000, SlopeIdx: -1, SlopeKind: gno.SizeFlat}
 
 func init() {
-	for _, name := range []gno.Name{"caller", "today", "bound", "frames", "pushed", "popped", "nameMade", "record", "pending", "find", "holding", "quote", "jsonString"} {
+	for _, name := range []gno.Name{"caller", "today", "bound", "frames", "pushed", "popped", "nameMade", "record", "pending", "find", "holding", "working", "mayWait", "waitOn", "quote", "jsonString"} {
 		info := memNativeGas
 		gno.RegisterNativeGas(memLibPath, name, &info)
 	}
@@ -150,6 +162,22 @@ func memNative(name gno.Name) func(*gno.Machine) {
 			memPush(m, names)
 			memPush(m, kinds)
 			memPush(m, statements)
+		}
+	case "working":
+		return func(m *gno.Machine) {
+			ctx := memCallContext(m, "working")
+			memPush(m, ctx.working != nil && ctx.working(memArg(m, 0), memArg(m, 1)))
+		}
+	case "mayWait":
+		return func(m *gno.Machine) {
+			memPush(m, memCallContext(m, "mayWait").mayWait)
+		}
+	case "waitOn":
+		return func(m *gno.Machine) {
+			ctx := memCallContext(m, "waitOn")
+			if ctx.waits != nil {
+				*ctx.waits = append(*ctx.waits, memWait{Id: memArg(m, 0), Session: memArg(m, 1)})
+			}
 		}
 	case "record":
 		return func(m *gno.Machine) {

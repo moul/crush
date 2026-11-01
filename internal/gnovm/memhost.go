@@ -54,6 +54,9 @@ type memHost struct {
 	// embed is the embedding server mem.Find looks by meaning with; nil
 	// looks by words alone.
 	embed *memEmbedder
+	// working says whether a session is working on a todo now (PARALLEL.md
+	// §6); nil says none is, as with one session.
+	working func(session, id string) bool
 }
 
 func newMemHost(b *base, dir string) *memHost {
@@ -85,6 +88,9 @@ type memRequest struct {
 	// Names are the names gnosh made for the texts the input keeps without
 	// naming them, by text (RunRequest.Names).
 	Names map[string]string
+	// MayWait lets the input's Next wait for working sessions: its last
+	// statement is a bare mem.Next(), and its session is no sub-agent.
+	MayWait bool
 }
 
 // memResult is what an input to mem did.
@@ -105,6 +111,8 @@ type memResult struct {
 	Frames []MemFrame
 	// Instance is mem's instance id, which a mem made anew does not share.
 	Instance string
+	// Waits is what the input's Next waits for, when it waits.
+	Waits []memWait
 }
 
 // MemGoal is a goal a mem call changed, as a session's task list shows it:
@@ -174,8 +182,11 @@ func (h *memHost) call(ctx context.Context, q memRequest) (memResult, error) {
 	case q.Session != "":
 		who, caller = "agent", q.Session
 	}
-	call, err := r.call(q.Code, memContext{caller: caller, bound: q.Goal, stack: q.Frames, names: q.Names, find: h.finder(ctx, x, j), holding: h.holding(j), limit: memLimit{ctx: ctx}})
-	res := memResult{Output: call.Output, Ops: call.Ops, Frames: call.Frames, Notes: notes, Instance: j.instance}
+	call, err := r.call(q.Code, memContext{
+		caller: caller, bound: q.Goal, stack: q.Frames, names: q.Names, find: h.finder(ctx, x, j), holding: h.holding(j), limit: memLimit{ctx: ctx},
+		working: h.working, mayWait: q.MayWait,
+	})
+	res := memResult{Output: call.Output, Ops: call.Ops, Frames: call.Frames, Notes: notes, Instance: j.instance, Waits: call.Waits}
 	if err != nil || call.batch == nil {
 		return res, err
 	}

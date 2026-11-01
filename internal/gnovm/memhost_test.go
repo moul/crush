@@ -556,7 +556,7 @@ func TestHostRunsMem(t *testing.T) {
 	// gnomem's source (memAPI).
 	res = call(`mem.Todo("release 1.3.0").Todo("tag it").Done("x")`)
 	require.ErrorContains(t, res.Err, "missing field Done in *klash/gnomem/v2.Frame")
-	require.Contains(t, res.Notes, "a Frame, which mem.Todo(…) and mem.Frame(id) give, has Todo, Wait, Ask and Push; Done is mem's: mem.Done(name, result...)")
+	require.Contains(t, res.Notes, "a Frame, which mem.Todo(…) and mem.Frame(id) give, has Todo, Wait, Ask, Push and Parallel; Done is mem's: mem.Done(name, result...)")
 	res = call(`mem.Todo("release 1.3.0").Ask("release-1-3-0/1", "who signs?")`)
 	require.EqualError(t, res.Err, "a Frame's Ask takes 1 argument, not 2: mem.Todo(…).Ask(question), or mem.Ask(name, question) for an item by its name")
 	res = call("mem.Todo(\"release 1.3.0\").Todo(\"tag it\")\nmem.Done(\"release-1.3.0/tag\", \"tagged\")")
@@ -597,7 +597,7 @@ func TestHostRunsMem(t *testing.T) {
 	// rest is: a Frame has no Note, and the hint says whose it is.
 	res = call(`mem.Todo("rotate the staging key").Note("it expires Friday")`)
 	require.ErrorContains(t, res.Err, "missing field Note in *klash/gnomem/v2.Frame")
-	require.Contains(t, res.Notes, "a Frame, which mem.Todo(…) and mem.Frame(id) give, has Todo, Wait, Ask and Push; Note is mem's: mem.Note(name, text)")
+	require.Contains(t, res.Notes, "a Frame, which mem.Todo(…) and mem.Frame(id) give, has Todo, Wait, Ask, Push and Parallel; Note is mem's: mem.Note(name, text)")
 }
 
 // A failed input's refusal names what its receipts said it added and set.

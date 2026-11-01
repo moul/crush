@@ -166,6 +166,10 @@ func (m *Mem) goalJSON(j *jsonWriter, name string, withSteps bool) {
 	j.num(int64(g.OpenSteps))
 	j.key("steps_done")
 	j.num(int64(g.DoneSteps))
+	if g.Parallel {
+		j.key("parallel")
+		j.boolean(true)
+	}
 	next, nextTitle := "", ""
 	if g.Status != "forgotten" {
 		next = m.nextFor(name, g, session)
@@ -196,6 +200,10 @@ func (m *Mem) goalJSON(j *jsonWriter, name string, withSteps bool) {
 			j.open("{")
 			for _, kv := range [][2]string{{"name", step}, {"title", s.Title}, {"status", s.Status}, {"for", s.For}, {"doing", s.Doing}} {
 				j.field(kv[0], kv[1])
+			}
+			if s.Parallel {
+				j.key("parallel")
+				j.boolean(true)
 			}
 			j.close("}")
 			n++
@@ -270,6 +278,15 @@ func (j *jsonWriter) field(k, v string) {
 func (j *jsonWriter) num(n int64) {
 	j.element()
 	j.sb.WriteString(strconv.FormatInt(n, 10))
+}
+
+func (j *jsonWriter) boolean(b bool) {
+	j.element()
+	if b {
+		j.sb.WriteString("true")
+	} else {
+		j.sb.WriteString("false")
+	}
 }
 
 func (j *jsonWriter) String() string { return j.sb.String() }

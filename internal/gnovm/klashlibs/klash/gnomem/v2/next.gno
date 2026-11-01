@@ -28,21 +28,10 @@ func (m *Mem) nextFor(name string, g *Todo, session string) string {
 }
 
 // next is the first open item under name, in outline order, that this
-// session can do now; "" if there is none.
+// session can do now; "" if there is none: the pick, looking for a first
+// leaf (peers.gno).
 func (m *Mem) next(name string, session string) string {
-	found := ""
-	m.eachStep(name, func(step string, s *Todo) bool {
-		if !m.free(s, session) {
-			return false
-		}
-		if s.OpenSteps == 0 {
-			found = step
-		} else {
-			found = m.next(step, session)
-		}
-		return found != ""
-	})
-	return found
+	return m.pickFor(name, session, false, nil)
 }
 
 // free reports whether open item it can be done now by session: it does

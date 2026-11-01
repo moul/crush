@@ -57,8 +57,9 @@ const memLibPath = "klash/gnomem/v2"
 // TestMemLayoutPinned pins their hash to this number: changing them means a
 // new number, and a store of an older one is rebuilt from its journal.
 // 3 indexes open goals by title, items waiting for words, and fact groups;
-// 4 names steps and thoughts (FRAMES.md).
-const memLayout = 4
+// 4 names steps and thoughts (FRAMES.md); 5 keeps who held a todo last and
+// whether its todos may be done at once (PARALLEL.md).
+const memLayout = 5
 
 // memLayoutFiles are the library sources memLayout covers.
 var memLayoutFiles = []string{
@@ -182,6 +183,9 @@ type memCall struct {
 	// (the hint after a pop is left out when a nil push followed it).
 	Frames  []MemFrame
 	NilPush int
+	// Waits is what the input's Next waits for, when it waits; nil
+	// otherwise (PARALLEL.md).
+	Waits []memWait
 	// At is the call's time, which its Ops share.
 	At int64
 	// batch is what the call wrote, held back from the store until commit;
@@ -304,6 +308,7 @@ func (r *memRealm) call(code string, ctx memContext) (call memCall, err error) {
 	ctx.frames = &call.Frames
 	call.NilPush = -1
 	ctx.nilPush = &call.NilPush
+	ctx.waits = &call.Waits
 	if ctx.today == "" {
 		ctx.today = now.Format(time.DateOnly)
 	}

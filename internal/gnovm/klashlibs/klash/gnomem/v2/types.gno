@@ -50,6 +50,10 @@ type Todo struct {
 	Wait    string   // a day ("2026-12-01") or words ("PR #6399 merged"); "" none
 	For     string   // "" the agent's; "user": a question or request for the user
 	Doing   string   // the session that holds it (Push, Start); "" none
+	Did     string   // the session that held it last, kept by apply when a hold ends: who did a done todo
+	// Parallel says its todos may be done at once, in any order, by any
+	// session (Frame.Parallel); otherwise they are in order.
+	Parallel bool
 	Steps   []string // its steps' names, in the order they were added; each one's id is this id, "/", the name
 	Notes   []note   // its thoughts, oldest first; never edited
 	Changed int64    // the latest change to it or to an item under it, Unix seconds

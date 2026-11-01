@@ -61,6 +61,20 @@ func find(words string, max int) (names, kinds []string, how string)
 // did.
 func holding(text string) (names, kinds []string, statements bool)
 
+// working reports whether session, another than this input's, is working on
+// todo id now: in a busy stretch, with the todo, or one above it, on its
+// stack (PARALLEL.md); false when gnosh cannot tell.
+func working(session, id string) bool
+
+// mayWait reports whether this input's Next may wait for working sessions:
+// its last statement is a bare mem.Next(), its session is not a sub-agent,
+// and gnosh can wake it.
+func mayWait() bool
+
+// waitOn tells gnosh this input's Next waits for todo id, which session
+// holds.
+func waitOn(id, session string)
+
 // Two that only format, in Go, since a character at a time is slow in Gno;
 // they answer anywhere.
 
