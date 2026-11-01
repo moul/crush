@@ -350,13 +350,18 @@ var readOnlyChecks = map[string]readOnlyCheck{
 // readOnlyGitCommands are git's subcommands that read only, each with the
 // check of its arguments.
 var readOnlyGitCommands = map[string]readOnlyCheck{
-	"blame":     anyArgs,
-	"describe":  anyArgs,
-	"diff":      anyArgs,
-	"grep":      anyArgs,
-	"log":       anyArgs,
-	"ls-files":  anyArgs,
-	"ls-remote": anyArgs,
+	"blame":    anyArgs,
+	"describe": anyArgs,
+	"diff":     anyArgs,
+	"grep":     anyArgs,
+	"log":      anyArgs,
+	"ls-files": anyArgs,
+	// -u names the program to run as the remote's upload-pack.
+	"ls-remote": func(args []string, _ bool) bool {
+		return !slices.ContainsFunc(args, func(arg string) bool {
+			return strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.ContainsRune(arg[1:], 'u')
+		})
+	},
 	"rev-parse": anyArgs,
 	"shortlog":  anyArgs,
 	"show":      anyArgs,
@@ -393,14 +398,32 @@ func readOnlyGit(args []string, uncertain bool) bool {
 	if !ok {
 		return false
 	}
-	for _, arg := range args[1:] {
-		for _, writes := range []string{"--output", "--ext-diff", "--open-files-in-pager", "-O"} {
-			if strings.HasPrefix(arg, writes) {
-				return false
-			}
-		}
+	if slices.ContainsFunc(args[1:], gitRunsOrWrites) {
+		return false
 	}
 	return check(args[1:], uncertain)
+}
+
+// gitProgramOptions are git's options that run a program (a pager, a diff
+// program, the remote's upload-pack) or write a file, by their whole names.
+var gitProgramOptions = []string{"--output", "--ext-diff", "--open-files-in-pager", "--upload-pack", "--receive-pack", "--exec"}
+
+// gitRunsOrWrites reports whether arg, an argument of a read-only git
+// subcommand, is one of gitProgramOptions. git takes any unambiguous start
+// of a long option for it (--op is --open-files-in-pager, --upload for
+// --upload-pack), so an argument that starts one counts too; so does a
+// group of short options that holds -O, git grep's pager (-Ovim, -iO).
+func gitRunsOrWrites(arg string) bool {
+	if name, ok := strings.CutPrefix(arg, "--"); ok {
+		name, _, _ = strings.Cut(name, "=")
+		if name == "" {
+			return false
+		}
+		return slices.ContainsFunc(gitProgramOptions, func(opt string) bool {
+			return strings.HasPrefix(opt, "--"+name) || strings.HasPrefix("--"+name, opt)
+		})
+	}
+	return strings.HasPrefix(arg, "-") && strings.ContainsRune(arg[1:], 'O')
 }
 
 // gitListing is the check of git branch and git tag: they only list when
@@ -436,6 +459,11 @@ func init() {
 // in the project can lead out of it (grep -R, ls -L, du -L, diff -r). A
 // command not here reads no file its arguments name (echo, which, pwd).
 var fileReaders = map[string]func(arg string) bool{
+	// date -f reads a file of dates and prints each line it cannot read
+	// back in its error; -r reads a file's time.
+	"date": nil,
+	// df names the file system a path is on.
+	"df":   nil,
 	"cat":  nil,
 	"head": nil,
 	"tail": nil,

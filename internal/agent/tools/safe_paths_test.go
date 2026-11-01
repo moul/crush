@@ -98,3 +98,29 @@ func TestGitAsksWhereTheRepositoryRunsPrograms(t *testing.T) {
 	require.Empty(t, bashQuestion(BashParams{Command: "echo digit"}, dirs.gitPrograms).Note)
 	require.Empty(t, bashQuestion(BashParams{Command: "git status"}, nil).Note)
 }
+
+// git takes the start of a long option for the option, so a read-only git
+// command that names a program to run under a shortened name asks, as do
+// ls-remote's -u and date's -f, which reads a file and prints its lines
+// back. (Both found by review; each ran unasked.)
+func TestReadOnlyCommandsRunNoProgramUnderAnotherName(t *testing.T) {
+	t.Parallel()
+	project := t.TempDir()
+	dirs := workDirs{start: project, project: project}
+	for _, command := range []string{
+		"git grep --op=id -e x", "git grep --open-files-in-p=id -e x", "git grep --open-files-in-pager=id -e x",
+		"git grep -O -e x", "git grep -Oid -e x", "git grep -iOid -e x", "git ls-remote --upload-pack=id .",
+		"git ls-remote --upload=id .", "git ls-remote --exec=id .", "git ls-remote -u id .", "git ls-remote -qu id .",
+		"git log --out=/tmp/x", "git log --o=/tmp/x", "git diff --ext", "git show --ext-d HEAD",
+		"date -f /home/u/.ssh/id_ed25519", "date --file=/etc/passwd", "date -f/etc/passwd", "date -r /etc/passwd", "df /home/u",
+	} {
+		require.Falsef(t, readOnlyCommand(command, dirs), "%q runs a program or reads outside", command)
+	}
+	for _, command := range []string{
+		"git grep -n foo", "git grep -in foo", "git log --oneline", "git log -u -1", "git diff --no-ext-diff",
+		"git diff --exit-code", "git log --format=%H", "git ls-remote", "git ls-remote --tags", "git ls-remote -q",
+		"date", "date +%s", "date -u", "date -d tomorrow", "df", "df -h", "df -h .",
+	} {
+		require.Truef(t, readOnlyCommand(command, dirs), "%q only reads the project", command)
+	}
+}
