@@ -1,0 +1,434 @@
+A heavier plan for peers (PARALLEL.md, B): the geom module of peers-geom with
+four methods per shape (Area, Perimeter, Scale, Contains), each its own file
+and table test, so a todo is real work and a session's start counts for
+less. Run with GNOVM_SCENARIO_PEERS=1 for one session and 3 for three at
+once; both must end with every test passing, the tests untouched and every
+todo done.
+
+-- peers --
+3
+-- mem --
+g := mem.Todo("make the geom module pass go test ./...").Parallel()
+a := g.Todo("circle: go test ./circle/ passes").Parallel()
+a.Todo("implement Circle.Area in circle/area.go so go test -run Area ./circle/ passes")
+a.Todo("implement Circle.Perimeter in circle/perimeter.go so go test -run Perimeter ./circle/ passes")
+a.Todo("implement Circle.Scale in circle/scale.go so go test -run Scale ./circle/ passes")
+a.Todo("implement Circle.Contains in circle/contains.go so go test -run Contains ./circle/ passes")
+b := g.Todo("square: go test ./square/ passes").Parallel()
+b.Todo("implement Square.Area in square/area.go so go test -run Area ./square/ passes")
+b.Todo("implement Square.Perimeter in square/perimeter.go so go test -run Perimeter ./square/ passes")
+b.Todo("implement Square.Scale in square/scale.go so go test -run Scale ./square/ passes")
+b.Todo("implement Square.Contains in square/contains.go so go test -run Contains ./square/ passes")
+c := g.Todo("triangle: go test ./triangle/ passes").Parallel()
+c.Todo("implement Triangle.Area in triangle/area.go so go test -run Area ./triangle/ passes")
+c.Todo("implement Triangle.Perimeter in triangle/perimeter.go so go test -run Perimeter ./triangle/ passes")
+c.Todo("implement Triangle.Scale in triangle/scale.go so go test -run Scale ./triangle/ passes")
+c.Todo("implement Triangle.Contains in triangle/contains.go so go test -run Contains ./triangle/ passes")
+-- prompt-new --
+Work through the plan in mem until nothing is left for you.
+-- check --
+cmd go test ./...
+cmd echo 'b201ecb8aa75bc0164e0eebffddcb9d00ce92e6ea776528a2fa41d03327f4301  circle/area_test.go' | sha256sum -c --quiet
+cmd echo '3da8043029185373f75d00e41b1d367a1838561dbb207a1f4575cd8d435cd620  circle/perimeter_test.go' | sha256sum -c --quiet
+cmd echo '5320a0b5dd513723584a90a5f56aa747554a0d8c456529c6ec0bab4ef699fb90  circle/scale_test.go' | sha256sum -c --quiet
+cmd echo '87de1a0e0d161288cbf37e8e44189a0a5f2cfd0987df59a28c5314c37bb25edb  circle/contains_test.go' | sha256sum -c --quiet
+cmd echo 'dbb9783a2525f9a49cb907e90de44507f1989254044a0b40760cd418816bc61c  square/area_test.go' | sha256sum -c --quiet
+cmd echo 'f82a0dc41f261ed4a04a50b8f4583749295278a95fabbb165fd58385fe054ef6  square/perimeter_test.go' | sha256sum -c --quiet
+cmd echo 'da68f2e27318be507982f3de181cc08f13ab5b52699308e7ce547c5166abb471  square/scale_test.go' | sha256sum -c --quiet
+cmd echo '39769e1a3b3e5a6c2b89390d036f66c182cd33a920935021cab1113c729b5323  square/contains_test.go' | sha256sum -c --quiet
+cmd echo 'e4eb551ac31a918659199352dad60577bd2419e1add2aeaab78a81957a9708d2  triangle/area_test.go' | sha256sum -c --quiet
+cmd echo 'a8f308f171f3ee7e4ab6b27477cca61fed3251d8b980a8e968576586831747bc  triangle/perimeter_test.go' | sha256sum -c --quiet
+cmd echo '64de1d197a8f6cf90558e4b9d97de724e8190c1f8977b5a7555898ae6b7398b3  triangle/scale_test.go' | sha256sum -c --quiet
+cmd echo '07adf2aa404897f448efd426b82de4b9098d6a277db97cc0c3a93ee2a9ae52b0  triangle/contains_test.go' | sha256sum -c --quiet
+mem-count done >= 16
+mem-count open == 0
+-- project/circle/area.go --
+package circle
+
+// Area is its area.
+func (s Circle) Area() float64 {
+	panic("todo")
+}
+-- project/circle/area_test.go --
+package circle
+
+import (
+	"math"
+	"testing"
+)
+
+func TestArea(t *testing.T) {
+	for _, tc := range []struct {
+		s    Circle
+		want float64
+	}{
+		{Circle{0, 0, 1}, math.Pi},
+		{Circle{3, -2, 2}, 4 * math.Pi},
+		{Circle{1, 1, 0}, 0},
+		{Circle{0, 0, 0.5}, 0.25 * math.Pi},
+	} {
+		if got := tc.s.Area(); math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("%+v.Area() = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+-- project/circle/circle.go --
+package circle
+
+// Circle is a circle of radius R centred at (X, Y).
+type Circle struct{ X, Y, R float64 }
+-- project/circle/contains.go --
+package circle
+
+// Contains reports whether the point (x, y) is inside it or on its boundary, to within 1e-9.
+func (s Circle) Contains(x, y float64) bool {
+	panic("todo")
+}
+-- project/circle/contains_test.go --
+package circle
+
+import "testing"
+
+func TestContains(t *testing.T) {
+	for _, tc := range []struct {
+		s    Circle
+		x, y float64
+		want bool
+	}{
+		{Circle{0, 0, 1}, 0, 0, true},
+		{Circle{0, 0, 1}, 1, 0, true},
+		{Circle{0, 0, 1}, 0.8, 0.8, false},
+		{Circle{2, 2, 1}, 2.5, 2.5, true},
+		{Circle{2, 2, 1}, 0, 0, false},
+	} {
+		if got := tc.s.Contains(tc.x, tc.y); got != tc.want {
+			t.Errorf("%+v.Contains(%v, %v) = %v, want %v", tc.s, tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+-- project/circle/perimeter.go --
+package circle
+
+// Perimeter is the length of its boundary.
+func (s Circle) Perimeter() float64 {
+	panic("todo")
+}
+-- project/circle/perimeter_test.go --
+package circle
+
+import (
+	"math"
+	"testing"
+)
+
+func TestPerimeter(t *testing.T) {
+	for _, tc := range []struct {
+		s    Circle
+		want float64
+	}{
+		{Circle{0, 0, 1}, 2 * math.Pi},
+		{Circle{5, 5, 3}, 6 * math.Pi},
+		{Circle{0, 0, 0}, 0},
+	} {
+		if got := tc.s.Perimeter(); math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("%+v.Perimeter() = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+-- project/circle/scale.go --
+package circle
+
+// Scale returns it scaled by k about its centre: every distance from its centre times k.
+func (s Circle) Scale(k float64) Circle {
+	panic("todo")
+}
+-- project/circle/scale_test.go --
+package circle
+
+import (
+	"math"
+	"reflect"
+	"testing"
+)
+
+func TestScale(t *testing.T) {
+	for _, tc := range []struct {
+		s    Circle
+		k    float64
+		want Circle
+	}{
+		{Circle{1, 2, 3}, 2, Circle{1, 2, 6}},
+		{Circle{0, 0, 4}, 0.5, Circle{0, 0, 2}},
+		{Circle{-3, 3, 1}, 0, Circle{-3, 3, 0}},
+	} {
+		got := tc.s.Scale(tc.k)
+		g, w := reflect.ValueOf(got), reflect.ValueOf(tc.want)
+		for i := 0; i < g.NumField(); i++ {
+			if math.Abs(g.Field(i).Float()-w.Field(i).Float()) > 1e-9 {
+				t.Errorf("%+v.Scale(%v) = %+v, want %+v", tc.s, tc.k, got, tc.want)
+				break
+			}
+		}
+	}
+}
+-- project/go.mod --
+module geom
+
+go 1.22
+-- project/square/area.go --
+package square
+
+// Area is its area.
+func (s Square) Area() float64 {
+	panic("todo")
+}
+-- project/square/area_test.go --
+package square
+
+import (
+	"math"
+	"testing"
+)
+
+func TestArea(t *testing.T) {
+	for _, tc := range []struct {
+		s    Square
+		want float64
+	}{
+		{Square{0, 0, 2}, 4},
+		{Square{-1, 3, 1.5}, 2.25},
+		{Square{0, 0, 0}, 0},
+	} {
+		if got := tc.s.Area(); math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("%+v.Area() = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+-- project/square/contains.go --
+package square
+
+// Contains reports whether the point (x, y) is inside it or on its boundary, to within 1e-9.
+func (s Square) Contains(x, y float64) bool {
+	panic("todo")
+}
+-- project/square/contains_test.go --
+package square
+
+import "testing"
+
+func TestContains(t *testing.T) {
+	for _, tc := range []struct {
+		s    Square
+		x, y float64
+		want bool
+	}{
+		{Square{0, 0, 2}, 1, 1, true},
+		{Square{0, 0, 2}, 2, 0, true},
+		{Square{0, 0, 2}, 2.1, 1, false},
+		{Square{-1, -1, 1}, -0.5, -0.5, true},
+		{Square{-1, -1, 1}, 0.5, 0.5, false},
+	} {
+		if got := tc.s.Contains(tc.x, tc.y); got != tc.want {
+			t.Errorf("%+v.Contains(%v, %v) = %v, want %v", tc.s, tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+-- project/square/perimeter.go --
+package square
+
+// Perimeter is the length of its boundary.
+func (s Square) Perimeter() float64 {
+	panic("todo")
+}
+-- project/square/perimeter_test.go --
+package square
+
+import (
+	"math"
+	"testing"
+)
+
+func TestPerimeter(t *testing.T) {
+	for _, tc := range []struct {
+		s    Square
+		want float64
+	}{
+		{Square{0, 0, 2}, 8},
+		{Square{4, 4, 0.25}, 1},
+		{Square{0, 0, 0}, 0},
+	} {
+		if got := tc.s.Perimeter(); math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("%+v.Perimeter() = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+-- project/square/scale.go --
+package square
+
+// Scale returns it scaled by k about its lower-left corner: every distance from its lower-left corner times k.
+func (s Square) Scale(k float64) Square {
+	panic("todo")
+}
+-- project/square/scale_test.go --
+package square
+
+import (
+	"math"
+	"reflect"
+	"testing"
+)
+
+func TestScale(t *testing.T) {
+	for _, tc := range []struct {
+		s    Square
+		k    float64
+		want Square
+	}{
+		{Square{1, 2, 3}, 2, Square{1, 2, 6}},
+		{Square{-1, -1, 4}, 0.25, Square{-1, -1, 1}},
+	} {
+		got := tc.s.Scale(tc.k)
+		g, w := reflect.ValueOf(got), reflect.ValueOf(tc.want)
+		for i := 0; i < g.NumField(); i++ {
+			if math.Abs(g.Field(i).Float()-w.Field(i).Float()) > 1e-9 {
+				t.Errorf("%+v.Scale(%v) = %+v, want %+v", tc.s, tc.k, got, tc.want)
+				break
+			}
+		}
+	}
+}
+-- project/square/square.go --
+package square
+
+// Square is an axis-aligned square whose lower-left corner is (X, Y).
+type Square struct{ X, Y, Side float64 }
+-- project/triangle/area.go --
+package triangle
+
+// Area is its area.
+func (s Triangle) Area() float64 {
+	panic("todo")
+}
+-- project/triangle/area_test.go --
+package triangle
+
+import (
+	"math"
+	"testing"
+)
+
+func TestArea(t *testing.T) {
+	for _, tc := range []struct {
+		s    Triangle
+		want float64
+	}{
+		{Triangle{0, 0, 4, 0, 0, 3}, 6},
+		{Triangle{0, 0, 0, 3, 4, 0}, 6},
+		{Triangle{1, 1, 3, 1, 2, 4}, 3},
+		{Triangle{0, 0, 1, 1, 2, 2}, 0},
+	} {
+		if got := tc.s.Area(); math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("%+v.Area() = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+-- project/triangle/contains.go --
+package triangle
+
+// Contains reports whether the point (x, y) is inside it or on its boundary, to within 1e-9.
+func (s Triangle) Contains(x, y float64) bool {
+	panic("todo")
+}
+-- project/triangle/contains_test.go --
+package triangle
+
+import "testing"
+
+func TestContains(t *testing.T) {
+	for _, tc := range []struct {
+		s    Triangle
+		x, y float64
+		want bool
+	}{
+		{Triangle{0, 0, 4, 0, 0, 3}, 1, 1, true},
+		{Triangle{0, 0, 4, 0, 0, 3}, 2, 0, true},
+		{Triangle{0, 0, 4, 0, 0, 3}, 3, 3, false},
+		{Triangle{0, 0, 0, 3, 4, 0}, 1, 1, true},
+		{Triangle{1, 1, 3, 1, 2, 4}, 2, 3.9, true},
+		{Triangle{1, 1, 3, 1, 2, 4}, 0, 0, false},
+	} {
+		if got := tc.s.Contains(tc.x, tc.y); got != tc.want {
+			t.Errorf("%+v.Contains(%v, %v) = %v, want %v", tc.s, tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+-- project/triangle/perimeter.go --
+package triangle
+
+// Perimeter is the length of its boundary.
+func (s Triangle) Perimeter() float64 {
+	panic("todo")
+}
+-- project/triangle/perimeter_test.go --
+package triangle
+
+import (
+	"math"
+	"testing"
+)
+
+func TestPerimeter(t *testing.T) {
+	for _, tc := range []struct {
+		s    Triangle
+		want float64
+	}{
+		{Triangle{0, 0, 4, 0, 0, 3}, 12},
+		{Triangle{0, 0, 2, 0, 1, 0}, 4},
+		{Triangle{-1, -1, -1, 2, 3, -1}, 12},
+	} {
+		if got := tc.s.Perimeter(); math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("%+v.Perimeter() = %v, want %v", tc.s, got, tc.want)
+		}
+	}
+}
+-- project/triangle/scale.go --
+package triangle
+
+// Scale returns it scaled by k about its corner A: every distance from its corner A times k.
+func (s Triangle) Scale(k float64) Triangle {
+	panic("todo")
+}
+-- project/triangle/scale_test.go --
+package triangle
+
+import (
+	"math"
+	"reflect"
+	"testing"
+)
+
+func TestScale(t *testing.T) {
+	for _, tc := range []struct {
+		s    Triangle
+		k    float64
+		want Triangle
+	}{
+		{Triangle{0, 0, 4, 0, 0, 3}, 2, Triangle{0, 0, 8, 0, 0, 6}},
+		{Triangle{1, 1, 3, 1, 2, 4}, 0.5, Triangle{1, 1, 2, 1, 1.5, 2.5}},
+		{Triangle{2, 2, 4, 6, 0, 0}, -1, Triangle{2, 2, 0, -2, 4, 4}},
+	} {
+		got := tc.s.Scale(tc.k)
+		g, w := reflect.ValueOf(got), reflect.ValueOf(tc.want)
+		for i := 0; i < g.NumField(); i++ {
+			if math.Abs(g.Field(i).Float()-w.Field(i).Float()) > 1e-9 {
+				t.Errorf("%+v.Scale(%v) = %+v, want %+v", tc.s, tc.k, got, tc.want)
+				break
+			}
+		}
+	}
+}
+-- project/triangle/triangle.go --
+package triangle
+
+// Triangle is a triangle with corners A, B and C.
+type Triangle struct{ Ax, Ay, Bx, By, Cx, Cy float64 }
