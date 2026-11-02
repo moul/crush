@@ -138,25 +138,17 @@ func applyTextEdit(lines []string, edit protocol.TextEdit, encoding powernap.Off
 	}
 	suffix := endLineContent[endChar:]
 
-	// Handle the edit
-	if edit.NewText == "" {
-		if prefix+suffix != "" {
-			result = append(result, prefix+suffix)
-		}
+	// Handle the edit. An empty NewText still leaves prefix+suffix as a
+	// line, even an empty one: only the newlines inside the range go.
+	newLines := strings.Split(edit.NewText, "\n")
+	if len(newLines) == 1 {
+		// Single line change
+		result = append(result, prefix+newLines[0]+suffix)
 	} else {
-		// Split new text into lines, being careful not to add extra newlines
-		// newLines := strings.Split(strings.TrimRight(edit.NewText, "\n"), "\n")
-		newLines := strings.Split(edit.NewText, "\n")
-
-		if len(newLines) == 1 {
-			// Single line change
-			result = append(result, prefix+newLines[0]+suffix)
-		} else {
-			// Multi-line change
-			result = append(result, prefix+newLines[0])
-			result = append(result, newLines[1:len(newLines)-1]...)
-			result = append(result, newLines[len(newLines)-1]+suffix)
-		}
+		// Multi-line change
+		result = append(result, prefix+newLines[0])
+		result = append(result, newLines[1:len(newLines)-1]...)
+		result = append(result, newLines[len(newLines)-1]+suffix)
 	}
 
 	// Add remaining lines
