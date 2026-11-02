@@ -1,6 +1,8 @@
 package util
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	powernap "github.com/charmbracelet/x/powernap/pkg/lsp"
@@ -371,6 +373,55 @@ func TestRangesOverlap(t *testing.T) {
 			// Overlap should be symmetric
 			got2 := rangesOverlap(tt.r2, tt.r1)
 			require.Equal(t, tt.want, got2, "rangesOverlap(r2, r1) symmetry")
+		})
+	}
+}
+
+func TestApplyWorkspaceEdit_DeleteKeepsEmptyLine(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		content  string
+		rng      protocol.Range
+		expected string
+	}{
+		{
+			name:    "delete a line followed by a blank line",
+			content: "para one\nremove me\n\npara two\n",
+			rng: protocol.Range{
+				Start: protocol.Position{Line: 1, Character: 0},
+				End:   protocol.Position{Line: 2, Character: 0},
+			},
+			expected: "para one\n\npara two\n",
+		},
+		{
+			name:    "clear the text of a line",
+			content: "a\nfoo\nb\n",
+			rng: protocol.Range{
+				Start: protocol.Position{Line: 1, Character: 0},
+				End:   protocol.Position{Line: 1, Character: 3},
+			},
+			expected: "a\n\nb\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "file.md")
+			require.NoError(t, os.WriteFile(path, []byte(tt.content), 0o644))
+
+			edit := protocol.WorkspaceEdit{
+				Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+					protocol.URIFromPath(path): {{Range: tt.rng, NewText: ""}},
+				},
+			}
+			require.NoError(t, ApplyWorkspaceEdit(edit, powernap.UTF16))
+
+			got, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, string(got))
 		})
 	}
 }
