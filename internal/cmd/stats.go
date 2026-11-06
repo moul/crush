@@ -528,6 +528,16 @@ func mergeStats(projectStats []ProjectStats) *Stats {
 		merged.HourDayHeatmap = append(merged.HourDayHeatmap, h)
 	}
 
+	// Put the days back in the order the queries give them, which the
+	// page relies on: the daily table takes its first 30 rows as the
+	// latest days, and the recent activity chart draws them left to right.
+	sort.Slice(merged.UsageByDay, func(i, j int) bool {
+		return merged.UsageByDay[i].Day > merged.UsageByDay[j].Day
+	})
+	sort.Slice(merged.RecentActivity, func(i, j int) bool {
+		return merged.RecentActivity[i].Day < merged.RecentActivity[j].Day
+	})
+
 	// Sort slices by count (descending).
 	sort.Slice(merged.UsageByModel, func(i, j int) bool {
 		return merged.UsageByModel[i].MessageCount > merged.UsageByModel[j].MessageCount
