@@ -284,3 +284,20 @@ func TestGlobSearchesARootOfAnIgnoredName(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{filepath.Join(root, "tools", "gnosh.sh")}, got)
 }
+
+func TestHasPrefixDotDotName(t *testing.T) {
+	t.Parallel()
+
+	wd := filepath.Join(t.TempDir(), "project")
+
+	// A name inside the working directory that starts with "..", as the
+	// ..data link Kubernetes puts in a mounted ConfigMap, is still inside.
+	inside := filepath.Join(wd, "..data", "config.yaml")
+	require.True(t, HasPrefix(inside, wd))
+	require.Equal(t, wd, PathOrPrefix(inside, wd))
+
+	require.True(t, HasPrefix(wd, wd))
+	require.False(t, HasPrefix(filepath.Dir(wd), wd))
+	require.False(t, HasPrefix(filepath.Join(filepath.Dir(wd), "other", "f"), wd))
+	require.False(t, HasPrefix(wd+"-sibling", wd))
+}
