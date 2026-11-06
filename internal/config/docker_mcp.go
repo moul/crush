@@ -120,14 +120,17 @@ func (s *ConfigStore) EnableDockerMCP() error {
 }
 
 // DisableDockerMCP removes Docker MCP configuration and persists the change.
+// Only the docker entry is deleted from the global file: the in-memory MCP
+// map also holds the project's servers, which do not belong there.
 func (s *ConfigStore) DisableDockerMCP() error {
-	return s.update(ScopeGlobal, func(c *Config) map[string]any {
-		if c.MCP == nil {
-			return nil
-		}
-		delete(c.MCP, DockerMCPName)
-		return map[string]any{"mcp": c.MCP}
-	})
+	if s.Config().MCP == nil {
+		return nil
+	}
+	s.RemoveDockerMCPInMemory()
+	if err := s.RemoveConfigField(ScopeGlobal, "mcp."+DockerMCPName); err != nil {
+		return fmt.Errorf("failed to remove docker mcp configuration: %w", err)
+	}
+	return nil
 }
 
 // RemoveDockerMCPInMemory removes the Docker MCP entry from the in-memory

@@ -153,6 +153,43 @@ func TestDisableDockerMCP(t *testing.T) {
 		require.False(t, exists)
 	})
 
+	t.Run("leaves the other servers out of the global config", func(t *testing.T) {
+		t.Parallel()
+
+		// The global file holds only docker; github comes from the
+		// project's config and is in the merged config beside it.
+		configPath := filepath.Join(t.TempDir(), "crush.json")
+		global := `{"mcp":{"docker":{"type":"stdio","command":"docker","args":["mcp","gateway","run"]}}}`
+		require.NoError(t, os.WriteFile(configPath, []byte(global), 0o600))
+
+		cfg := &Config{
+			MCP: map[string]MCPConfig{
+				DockerMCPName: {
+					Type:    MCPStdio,
+					Command: "docker",
+					Args:    []string{"mcp", "gateway", "run"},
+				},
+				"github": {
+					Type: MCPHttp,
+					URL:  "https://api.githubcopilot.com/mcp/",
+				},
+			},
+		}
+		store := &ConfigStore{
+			config:         cfg,
+			globalDataPath: configPath,
+			resolver:       NewShellVariableResolver(env.New()),
+		}
+
+		require.NoError(t, store.DisableDockerMCP())
+
+		data, err := os.ReadFile(configPath)
+		require.NoError(t, err)
+		require.NotContains(t, string(data), "docker")
+		require.NotContains(t, string(data), "github")
+		require.False(t, store.Config().IsDockerMCPEnabled())
+	})
+
 	t.Run("does nothing when MCP is nil", func(t *testing.T) {
 		t.Parallel()
 
