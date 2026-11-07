@@ -4,15 +4,49 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 
 	"github.com/charmbracelet/crush/internal/lsp/util"
 	powernap "github.com/charmbracelet/x/powernap/pkg/lsp"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
 )
 
-// HandleWorkspaceConfiguration handles workspace configuration requests
-func HandleWorkspaceConfiguration(_ context.Context, _ string, params json.RawMessage) (any, error) {
-	return []map[string]any{{}}, nil
+// HandleWorkspaceConfiguration answers workspace/configuration requests
+// from the server's configured options. Each requested item gets the
+// options under its section, a dotted path such as "python.analysis", or
+// all of them when it names none, and an empty object, as VS Code sends,
+// when there is nothing there. The answer has one entry per item, as the
+// protocol requires.
+func HandleWorkspaceConfiguration(options map[string]any) func(_ context.Context, _ string, params json.RawMessage) (any, error) {
+	return func(_ context.Context, _ string, params json.RawMessage) (any, error) {
+		var configParams protocol.ConfigurationParams
+		if err := json.Unmarshal(params, &configParams); err != nil {
+			return nil, err
+		}
+		result := make([]any, len(configParams.Items))
+		for i, item := range configParams.Items {
+			result[i] = configurationSection(options, item.Section)
+		}
+		return result, nil
+	}
+}
+
+// configurationSection returns the value at a dotted section of options,
+// or an empty object when there is none.
+func configurationSection(options map[string]any, section string) any {
+	var value any = options
+	if section != "" {
+		for key := range strings.SplitSeq(section, ".") {
+			m, _ := value.(map[string]any)
+			if value = m[key]; value == nil {
+				break
+			}
+		}
+	}
+	if m, ok := value.(map[string]any); value == nil || ok && m == nil {
+		return map[string]any{}
+	}
+	return value
 }
 
 // HandleWorkDoneProgressCreate handles server-initiated window/workDoneProgress/create
