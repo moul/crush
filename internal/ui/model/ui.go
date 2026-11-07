@@ -3101,13 +3101,20 @@ func (m *UI) handleDialogAction(action dialog.Action) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// substituteArgs replaces $ARG_NAME placeholders in content with actual values.
+// argPlaceholder matches a $ARG_NAME placeholder, as the commands package
+// finds a custom command's arguments.
+var argPlaceholder = regexp.MustCompile(`\$([A-Z][A-Z0-9_]*)`)
+
+// substituteArgs replaces $ARG_NAME placeholders in content with actual
+// values in a single pass, so $FILE does not eat the start of $FILE_NAME and
+// a value that reads like a placeholder is kept as typed.
 func substituteArgs(content string, args map[string]string) string {
-	for name, value := range args {
-		placeholder := "$" + name
-		content = strings.ReplaceAll(content, placeholder, value)
-	}
-	return content
+	return argPlaceholder.ReplaceAllStringFunc(content, func(placeholder string) string {
+		if value, ok := args[placeholder[1:]]; ok {
+			return value
+		}
+		return placeholder
+	})
 }
 
 // refreshHyperAndRetrySelect returns a command that silently refreshes
