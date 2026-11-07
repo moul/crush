@@ -289,7 +289,7 @@ func (s *runStream) traceToolCalls(msg proto.Message, sub bool) {
 	switch msg.Role {
 	case proto.Tool:
 		for _, result := range msg.ToolResults() {
-			s.trace.Result(result.ToolCallID, result.IsError, result.Metadata)
+			s.trace.Result(msg.SessionID, result.ToolCallID, result.IsError, result.Metadata)
 		}
 	case proto.Assistant:
 		for _, call := range msg.ToolCalls() {
@@ -297,9 +297,9 @@ func (s *runStream) traceToolCalls(msg proto.Message, sub bool) {
 				continue
 			}
 			if sub {
-				s.trace.SubCall(call.ID, call.Name, toolCallSummary(call))
+				s.trace.SubCall(msg.SessionID, msg.ID, call.ID, call.Name, toolCallSummary(call))
 			} else {
-				s.trace.Call(call.ID, call.Name, toolCallSummary(call))
+				s.trace.Call(msg.SessionID, msg.ID, call.ID, call.Name, toolCallSummary(call))
 			}
 		}
 	}

@@ -789,7 +789,7 @@ func traceToolCalls(trace *format.ToolTrace, msg message.Message, sub bool) {
 	switch msg.Role {
 	case message.Tool:
 		for _, result := range msg.ToolResults() {
-			trace.Result(result.ToolCallID, result.IsError, result.Metadata)
+			trace.Result(msg.SessionID, result.ToolCallID, result.IsError, result.Metadata)
 		}
 	case message.Assistant:
 		for _, call := range msg.ToolCalls() {
@@ -797,9 +797,9 @@ func traceToolCalls(trace *format.ToolTrace, msg message.Message, sub bool) {
 				continue
 			}
 			if sub {
-				trace.SubCall(call.ID, call.Name, call.Summary())
+				trace.SubCall(msg.SessionID, msg.ID, call.ID, call.Name, call.Summary())
 			} else {
-				trace.Call(call.ID, call.Name, call.Summary())
+				trace.Call(msg.SessionID, msg.ID, call.ID, call.Name, call.Summary())
 			}
 		}
 	}
