@@ -224,3 +224,18 @@ func TestRequestsSayWhetherASessionGrantCoversThem(t *testing.T) {
 	require.True(t, alwaysAsks(t.Context(), link))
 	require.True(t, alwaysAsks(WithHookAsk(t.Context(), "call-1"), filepath.Join(project, "a.go")))
 }
+
+// A gnoshrc is a Bash script that runs as Gnosh starts in the folder, so a
+// change of one, under any of the names a project config file can have, is
+// asked about in acceptEdits as a change of gnosh.json is.
+func TestAcceptEditsAsksAboutShellConfigs(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	s := New(Options{WorkingDir: project, AcceptEdits: true})
+	for _, name := range []string{".gnoshrc", "gnoshrc", ".klashrc", "klashrc", ".crushrc", "crushrc", "GNOSHRC"} {
+		require.False(t, runsUnasked(t, t.Context(), s, "edit", filepath.Join(project, name)), "edit %s", name)
+		require.False(t, runsUnasked(t, t.Context(), s, "write", filepath.Join(project, "sub", name)), "write sub/%s", name)
+	}
+	require.True(t, runsUnasked(t, t.Context(), s, "edit", filepath.Join(project, "gnoshrc.md")))
+}

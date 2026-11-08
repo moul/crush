@@ -32,6 +32,7 @@ var (
 		".gitconfig", ".gitmodules", ".bashrc", ".bash_profile", ".bash_login", ".profile",
 		".zshrc", ".zshenv", ".zprofile", ".zlogin", ".npmrc", ".mcp.json", ".claude.json",
 		"gnosh.json", ".gnosh.json", "klash.json", ".klash.json", "crush.json", ".crush.json",
+		"gnoshrc", ".gnoshrc", "klashrc", ".klashrc", "crushrc", ".crushrc",
 	}
 )
 
