@@ -146,6 +146,13 @@ func TestHookScriptProblem(t *testing.T) {
 	require.Equal(t, "${CLAUDE_PROJECT_DIR}/missing.sh does not exist", hookScriptProblem(`"${CLAUDE_PROJECT_DIR}/missing.sh"`, dir))
 	require.Equal(t, "$GNOSH_PROJECT_DIR/missing.sh does not exist", hookScriptProblem("$GNOSH_PROJECT_DIR/missing.sh arg", dir))
 	require.Empty(t, hookScriptProblem(`"${CLAUDE_PROJECT_DIR}/ok.sh"`, dir))
+
+	// Claude Code's documentation quotes the variable alone and leaves
+	// the rest of the path after it.
+	require.Equal(t, "$CLAUDE_PROJECT_DIR/missing.sh does not exist", hookScriptProblem(`"$CLAUDE_PROJECT_DIR"/missing.sh`, dir))
+	require.Equal(t, "$CLAUDE_PROJECT_DIR/plain.sh is not executable", hookScriptProblem(`"$CLAUDE_PROJECT_DIR"/plain.sh arg`, dir))
+	require.Empty(t, hookScriptProblem(`"$CLAUDE_PROJECT_DIR"/ok.sh`, dir))
+	require.Empty(t, hookScriptProblem(`"$CLAUDE_PROJECT_DIR/missing`, dir), "an unclosed quote is the shell's to report")
 }
 
 // The report names the hook whose script is missing, and what that

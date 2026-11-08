@@ -177,7 +177,7 @@ func hookCommandProblem(command string, lookPath func(string) (string, error)) s
 
 // hookScriptProblem says what is wrong with the script a hook command
 // runs, when the command starts with a path to one (./hooks/check.sh,
-// ~/bin/gate, Claude Code's "${CLAUDE_PROJECT_DIR}/.claude/hooks/x.sh"):
+// ~/bin/gate, Claude Code's "$CLAUDE_PROJECT_DIR"/.claude/hooks/x.sh):
 // it does not exist, is a directory, or is not executable. Hooks run in
 // dir, the project, which is what the project-directory variables hold.
 // A command that starts with a bare name is left alone, since the hook
@@ -189,8 +189,11 @@ func hookScriptProblem(command, dir string) string {
 		return ""
 	}
 	script := fields[0]
-	if len(script) > 1 && script[0] == '"' && script[len(script)-1] == '"' {
-		script = script[1 : len(script)-1]
+	// Double quotes only group: "${CLAUDE_PROJECT_DIR}/x.sh" and Claude
+	// Code's documented "$CLAUDE_PROJECT_DIR"/x.sh name the same path. An
+	// unclosed one is left in, for the check below to skip.
+	if strings.Count(script, `"`)%2 == 0 {
+		script = strings.ReplaceAll(script, `"`, "")
 	}
 	other := false
 	expanded := os.Expand(script, func(name string) string {
