@@ -164,3 +164,25 @@ func TestSpillBytes_OldOnesArePrunedToo(t *testing.T) {
 	require.NoFileExists(t, stale)
 	require.FileExists(t, keep, "pruning must not touch unrelated files")
 }
+
+func TestTruncateForPersist_KeepsTailOfLongLinesEndingInNewline(t *testing.T) {
+	t.Parallel()
+
+	// Commands end their output with a newline. A minified file or a JSON
+	// response printed on one line must keep its end, as it does without
+	// the newline.
+	cases := map[string]string{
+		"one line":  strings.Repeat("x", maxPersistedBytes) + "END\n",
+		"two lines": strings.Repeat("x", maxPersistedBytes) + "\n" + strings.Repeat("y", maxPersistedBytes) + "END\n",
+	}
+	for name, full := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := TruncateForPersist(full, t.TempDir())
+			require.LessOrEqual(t, len(got), maxPersistedBytes+512)
+			require.True(t, strings.HasPrefix(got, "xxx"), "head must survive")
+			require.True(t, strings.HasSuffix(got, "END\n"),
+				"tail must survive, output ends in %q", got[len(got)-12:])
+		})
+	}
+}

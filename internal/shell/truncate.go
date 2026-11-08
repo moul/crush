@@ -125,12 +125,14 @@ func headAndTail(output string) (head, tail string) {
 	tail = strings.Join(lines[last:], "\n")
 
 	// A line wider than the budget fits in neither end. Keep as much of it
-	// as the budget allows rather than returning nothing.
-	if head == "" {
-		head = clipHead(lines[0], halfBytes)
+	// as the budget allows rather than returning nothing. An end that only
+	// claimed empty lines, such as the one after the newline output usually
+	// finishes with, has nothing to show either.
+	if strings.Trim(head, "\n") == "" {
+		head = clipHead(strings.Join(lines[:last], "\n"), halfBytes)
 	}
-	if tail == "" {
-		tail = clipTail(lines[len(lines)-1], halfBytes)
+	if strings.Trim(tail, "\n") == "" {
+		tail = clipTail(strings.Join(lines[first:], "\n"), halfBytes)
 	}
 	return head, tail
 }
