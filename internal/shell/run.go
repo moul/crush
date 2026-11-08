@@ -152,9 +152,22 @@ func RunAndCapture(ctx context.Context, opts RunOptions) (CaptureResult, error) 
 	}
 
 	return CaptureResult{
-		Output:   output,
+		Output:   withRunError(output, runErr),
 		ExitCode: exitCode,
 	}, nil
+}
+
+// withRunError appends to output why the shell could not run the command,
+// when it could not. Only then is the reason in the error alone: a command
+// that ran and exited non-zero has already said why on its stderr.
+func withRunError(output string, err error) string {
+	if err == nil || IsExitStatus(err) || IsInterrupt(err) {
+		return output
+	}
+	if output != "" && !strings.HasSuffix(output, "\n") {
+		output += "\n"
+	}
+	return output + err.Error()
 }
 
 // ptyColorEnvVars force color output for programs running inside a
