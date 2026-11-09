@@ -359,12 +359,8 @@ func (m *Message) AppendReasoningContent(delta string) {
 	found := false
 	for i, part := range m.Parts {
 		if c, ok := part.(ReasoningContent); ok {
-			m.Parts[i] = ReasoningContent{
-				Thinking:   c.Thinking + delta,
-				Signature:  c.Signature,
-				StartedAt:  c.StartedAt,
-				FinishedAt: c.FinishedAt,
-			}
+			c.Thinking += delta
+			m.Parts[i] = c
 			found = true
 		}
 	}
@@ -379,14 +375,9 @@ func (m *Message) AppendReasoningContent(delta string) {
 func (m *Message) AppendThoughtSignature(signature string, toolCallID string) {
 	for i, part := range m.Parts {
 		if c, ok := part.(ReasoningContent); ok {
-			m.Parts[i] = ReasoningContent{
-				Thinking:         c.Thinking,
-				ThoughtSignature: c.ThoughtSignature + signature,
-				ToolID:           toolCallID,
-				Signature:        c.Signature,
-				StartedAt:        c.StartedAt,
-				FinishedAt:       c.FinishedAt,
-			}
+			c.ThoughtSignature += signature
+			c.ToolID = toolCallID
+			m.Parts[i] = c
 			return
 		}
 	}
@@ -396,12 +387,8 @@ func (m *Message) AppendThoughtSignature(signature string, toolCallID string) {
 func (m *Message) AppendReasoningSignature(signature string) {
 	for i, part := range m.Parts {
 		if c, ok := part.(ReasoningContent); ok {
-			m.Parts[i] = ReasoningContent{
-				Thinking:   c.Thinking,
-				Signature:  c.Signature + signature,
-				StartedAt:  c.StartedAt,
-				FinishedAt: c.FinishedAt,
-			}
+			c.Signature += signature
+			m.Parts[i] = c
 			return
 		}
 	}
@@ -411,12 +398,8 @@ func (m *Message) AppendReasoningSignature(signature string) {
 func (m *Message) SetReasoningResponsesData(data *openai.ResponsesReasoningMetadata) {
 	for i, part := range m.Parts {
 		if c, ok := part.(ReasoningContent); ok {
-			m.Parts[i] = ReasoningContent{
-				Thinking:      c.Thinking,
-				ResponsesData: data,
-				StartedAt:     c.StartedAt,
-				FinishedAt:    c.FinishedAt,
-			}
+			c.ResponsesData = data
+			m.Parts[i] = c
 			return
 		}
 	}
@@ -426,12 +409,8 @@ func (m *Message) FinishThinking() {
 	for i, part := range m.Parts {
 		if c, ok := part.(ReasoningContent); ok {
 			if c.FinishedAt == 0 {
-				m.Parts[i] = ReasoningContent{
-					Thinking:   c.Thinking,
-					Signature:  c.Signature,
-					StartedAt:  c.StartedAt,
-					FinishedAt: time.Now().Unix(),
-				}
+				c.FinishedAt = time.Now().Unix()
+				m.Parts[i] = c
 			}
 			return
 		}
