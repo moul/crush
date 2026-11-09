@@ -33,9 +33,11 @@ func TestFormatSourcegraphResults(t *testing.T) {
 								"url":     "https://example.com/owner/repo/main.go",
 								"content": "package main\n\nfunc main() {\n\tprintln(\"match\")\n}\n",
 							},
+							// Sourcegraph numbers lines from 0: the
+							// println line, the fourth, is line 3.
 							"lineMatches": []any{
 								map[string]any{
-									"lineNumber": float64(4),
+									"lineNumber": float64(3),
 									"preview":    "\tprintln(\"match\")",
 								},
 							},
@@ -56,6 +58,7 @@ func TestFormatSourcegraphResults(t *testing.T) {
 	require.Contains(t, got, "3| func main() {")
 	require.Contains(t, got, "4|  \tprintln(\"match\")")
 	require.Contains(t, got, "5| }")
+	require.Equal(t, 1, strings.Count(got, "println"), "the matched line is shown once")
 }
 
 func TestFormatSourcegraphResultsRespectsCount(t *testing.T) {

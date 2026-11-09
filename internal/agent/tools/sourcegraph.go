@@ -308,7 +308,8 @@ func formatSourcegraphLineMatches(buffer *strings.Builder, lineMatches []any, fi
 func formatSourcegraphLineMatch(buffer *strings.Builder, lineMatch map[string]any, fileContent string, contextWindow int) {
 	lineNumber, _ := lineMatch["lineNumber"].(float64)
 	preview, _ := lineMatch["preview"].(string)
-	line := int(lineNumber)
+	// Sourcegraph numbers lines from 0; the output numbers them from 1.
+	line := int(lineNumber) + 1
 
 	buffer.WriteString("```\n")
 	if fileContent == "" {
