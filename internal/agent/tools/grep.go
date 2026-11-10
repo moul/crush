@@ -610,7 +610,9 @@ func searchFilesWithRegex(pattern, rootPath string, opts grepOptions, limit int)
 			return nil
 		}
 
-		if includePattern != nil && !includePattern.MatchString(path) {
+		// As ripgrep, a file searched by name is searched whatever include
+		// says.
+		if includePattern != nil && path != rootPath && !includePattern.MatchString(includeTarget(rootPath, path, opts.include)) {
 			return nil
 		}
 
@@ -753,10 +755,31 @@ func isTextFile(filePath string) bool {
 		contentType == "application/x-sh"
 }
 
+// includeTarget is what an include glob is matched against, as ripgrep's
+// --glob: the file name for a glob with no slash, else the path from the
+// search root.
+func includeTarget(rootPath, path, glob string) string {
+	if !strings.Contains(glob, "/") {
+		return filepath.Base(path)
+	}
+	rel, err := filepath.Rel(rootPath, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
+}
+
+// globToRegex turns glob into a regular expression for the whole of what
+// includeTarget gives: * and ? stop at a slash, and **/ is any number of
+// directories, none included.
 func globToRegex(glob string) string {
 	regexPattern := strings.ReplaceAll(glob, ".", "\\.")
-	regexPattern = strings.ReplaceAll(regexPattern, "*", ".*")
-	regexPattern = strings.ReplaceAll(regexPattern, "?", ".")
+	regexPattern = strings.ReplaceAll(regexPattern, "**/", "\x00")
+	regexPattern = strings.ReplaceAll(regexPattern, "**", "\x01")
+	regexPattern = strings.ReplaceAll(regexPattern, "*", "[^/]*")
+	regexPattern = strings.ReplaceAll(regexPattern, "?", "[^/]")
+	regexPattern = strings.ReplaceAll(regexPattern, "\x00", "(.*/)?")
+	regexPattern = strings.ReplaceAll(regexPattern, "\x01", ".*")
 
 	// Use pre-compiled regex instead of compiling each time
 	regexPattern = globBraceRegex.ReplaceAllStringFunc(regexPattern, func(match string) string {
@@ -764,5 +787,5 @@ func globToRegex(glob string) string {
 		return "(" + strings.ReplaceAll(inner, ",", "|") + ")"
 	})
 
-	return regexPattern
+	return "^" + regexPattern + "$"
 }

@@ -880,3 +880,43 @@ func TestGrepShowsTwoHundredFiftyLinesByDefault(t *testing.T) {
 	require.Equal(t, 250, strings.Count(out, "  Line "))
 	require.True(t, strings.HasSuffix(out, "\n[Showing results with pagination = limit: 250]"), out[len(out)-100:])
 }
+
+// Without ripgrep, include picks the files ripgrep's --glob picks: a glob
+// with no slash is matched against the whole file name, and one with a
+// slash against the path from the search root, where * stops at a slash.
+func TestSearchFilesWithRegexIncludeMatchesLikeRipgrep(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	for _, name := range []string{"a.ts", "b.tsx", "main.go", "main.golden", "domain/x.txt", "src/a.go", "src/sub/b.go"} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte("hello\n"), 0o644))
+	}
+
+	for _, tc := range []struct {
+		include string
+		want    []string
+	}{
+		{"*.ts", []string{"a.ts"}},
+		{"*.go", []string{"main.go", "src/a.go", "src/sub/b.go"}},
+		{"main.*", []string{"main.go", "main.golden"}},
+		{"src/*.go", []string{"src/a.go"}},
+		{"**/*.go", []string{"main.go", "src/a.go", "src/sub/b.go"}},
+		{"*.{ts,go}", []string{"a.ts", "main.go", "src/a.go", "src/sub/b.go"}},
+	} {
+		matches, err := searchFilesWithRegex("hello", dir, grepOptions{include: tc.include}, 100)
+		require.NoError(t, err)
+		var got []string
+		for _, m := range matches {
+			rel, err := filepath.Rel(dir, m.path)
+			require.NoError(t, err)
+			got = append(got, filepath.ToSlash(rel))
+		}
+		require.ElementsMatch(t, tc.want, got, "include %q", tc.include)
+	}
+
+	matches, err := searchFilesWithRegex("hello", filepath.Join(dir, "main.go"), grepOptions{include: "src/*.go"}, 100)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+}
