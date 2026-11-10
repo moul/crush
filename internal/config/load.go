@@ -275,14 +275,24 @@ func PushPopCrushEnv() func() {
 			}
 		}
 	}
-	backups := make(map[string]string)
+	// A variable that was not set is unset again, not left set and empty.
+	type backup struct {
+		value string
+		set   bool
+	}
+	backups := make(map[string]backup)
 	for name, value := range overrides {
-		backups[name] = os.Getenv(name)
+		old, set := os.LookupEnv(name)
+		backups[name] = backup{value: old, set: set}
 		os.Setenv(name, value)
 	}
 	return func() {
-		for k, v := range backups {
-			os.Setenv(k, v)
+		for k, b := range backups {
+			if b.set {
+				os.Setenv(k, b.value)
+			} else {
+				os.Unsetenv(k)
+			}
 		}
 	}
 }
