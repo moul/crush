@@ -198,3 +198,15 @@ func TestLogFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "gnosh.log"), nil, 0o644))
 	require.Equal(t, filepath.Join(dir, "gnosh.log"), LogFile(dir))
 }
+
+// A plain variable that was not set before is unset again after, not left
+// behind empty for every command, hook and MCP server gnosh starts.
+func TestPushPopCrushEnvUnsetsWhatWasUnset(t *testing.T) {
+	t.Setenv("GNOSH_PUSHPOP_UNSET_KEY", "new")
+	t.Cleanup(func() { os.Unsetenv("PUSHPOP_UNSET_KEY") })
+	restore := PushPopCrushEnv()
+	require.Equal(t, "new", os.Getenv("PUSHPOP_UNSET_KEY"))
+	restore()
+	_, set := os.LookupEnv("PUSHPOP_UNSET_KEY")
+	require.False(t, set, "PUSHPOP_UNSET_KEY was not set before")
+}
