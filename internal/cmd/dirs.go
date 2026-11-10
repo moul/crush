@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ gnosh dirs
 			return
 		}
 		for _, e := range entries {
-			cmd.Println(e)
+			fmt.Fprintln(cmd.OutOrStdout(), e)
 		}
 	},
 }

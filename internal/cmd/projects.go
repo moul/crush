@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 
 	"charm.land/lipgloss/v2"
@@ -40,12 +41,12 @@ gnosh projects --json
 			if err != nil {
 				return err
 			}
-			cmd.Println(string(data))
+			fmt.Fprintln(cmd.OutOrStdout(), string(data))
 			return nil
 		}
 
 		if len(projectList) == 0 {
-			cmd.Println("No projects tracked yet.")
+			fmt.Fprintln(cmd.OutOrStdout(), "No projects tracked yet.")
 			return nil
 		}
 
@@ -67,7 +68,7 @@ gnosh projects --json
 
 		// Not a TTY: plain output
 		for _, p := range projectList {
-			cmd.Printf("%s\t%s\t%s\n", p.Path, p.DataDir, p.LastAccessed.Format("2006-01-02T15:04:05Z07:00"))
+			fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\n", p.Path, p.DataDir, p.LastAccessed.Format("2006-01-02T15:04:05Z07:00"))
 		}
 		return nil
 	},
