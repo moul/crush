@@ -1,6 +1,7 @@
 package fsext
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,6 +48,23 @@ func TestListDirectory(t *testing.T) {
 		require.True(t, truncated)
 		require.Len(t, files, 2)
 	})
+}
+
+// A walk cut at exactly the limit is still a truncated one: fastwalk hands
+// the SkipAll that stops it back to the callback as the directory's error.
+func TestListDirectoryTruncatedAtLimit(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	for i := range 10 {
+		name := filepath.Join(tmp, fmt.Sprintf("file%02d.txt", i))
+		require.NoError(t, os.WriteFile(name, nil, 0o644))
+	}
+
+	files, truncated, err := ListDirectory(tmp, nil, 0, 3)
+	require.NoError(t, err)
+	require.Len(t, files, 3)
+	require.True(t, truncated)
 }
 
 func relPaths(tb testing.TB, in []string, base string) []string {
