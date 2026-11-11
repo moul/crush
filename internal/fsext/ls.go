@@ -301,6 +301,11 @@ func ListDirectory(initialPath string, ignorePatterns []string, depth, limit int
 
 	err := fastwalk.Walk(&conf, initialPath, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			// A directory stopped at the limit comes back here as its
+			// read error; keep the stop instead of skipping it.
+			if errors.Is(err, filepath.SkipAll) {
+				return err
+			}
 			return nil // Skip files we don't have permission to access
 		}
 

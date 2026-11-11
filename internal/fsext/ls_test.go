@@ -49,6 +49,23 @@ func TestListDirectory(t *testing.T) {
 	})
 }
 
+// A walk stopped at the limit inside one directory is truncated too:
+// fastwalk hands the stop back to the callback as that directory's read
+// error, and skipping it as an unreadable entry lost the stop.
+func TestListDirectoryTruncatedInOneDirectory(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt", "d.txt", "e.txt"} {
+		require.NoError(t, os.WriteFile(filepath.Join(tmp, name), []byte("x"), 0o644))
+	}
+
+	files, truncated, err := ListDirectory(tmp, nil, -1, 3)
+	require.NoError(t, err)
+	require.True(t, truncated)
+	require.Len(t, files, 3)
+}
+
 func relPaths(tb testing.TB, in []string, base string) []string {
 	tb.Helper()
 	out := make([]string, 0, len(in))
