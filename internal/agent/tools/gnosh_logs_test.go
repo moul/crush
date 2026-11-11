@@ -370,6 +370,23 @@ func TestGnoshLogs_PartialTrailingLine(t *testing.T) {
 	}
 }
 
+func TestGnoshLogs_EntriesAcrossChunkBoundaries(t *testing.T) {
+	t.Parallel()
+	var entries []map[string]any
+	for i := range 300 {
+		entries = append(entries, makeLogEntry("INFO", fmt.Sprintf("Entry %03d", i), "app.go", i, nil))
+	}
+	logFile := createTestLogFile(t, entries)
+
+	result := runGnoshLogs(logFile, GnoshLogsParams{Lines: maxLogLines})
+
+	lines := strings.Split(result, "\n")
+	require.Len(t, lines, maxLogLines)
+	for i, line := range lines {
+		require.Contains(t, line, fmt.Sprintf("Entry %03d", 300-maxLogLines+i))
+	}
+}
+
 func TestGnoshLogs_ValueQuoting(t *testing.T) {
 	t.Parallel()
 	entries := []map[string]any{
