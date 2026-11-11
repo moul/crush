@@ -1,7 +1,9 @@
 package projects
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/lock"
 )
 
 const projectsFileName = "projects.json"
@@ -71,11 +74,40 @@ func Save(list *ProjectList) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0o600)
+	// Written beside the file and renamed over it, so a reader never
+	// sees a file another process is still writing.
+	tmp, err := os.CreateTemp(filepath.Dir(path), projectsFileName+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // Register adds or updates a project in the list.
 func Register(workingDir, dataDir string) error {
+	// Every gnosh start registers its directory. Without a lock held
+	// from the read to the write, two started at once each write back
+	// the list they read, and the one written last drops the other.
+	path := projectsFilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	release, err := lock.File(ctx, path+".lock")
+	if err != nil {
+		return fmt.Errorf("lock %s: %w", path, err)
+	}
+	defer release()
+
 	list, err := Load()
 	if err != nil {
 		return err

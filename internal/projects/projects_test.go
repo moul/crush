@@ -1,10 +1,14 @@
 package projects
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegisterAndList(t *testing.T) {
@@ -210,4 +214,31 @@ func TestRegisterOrdersByRecency(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("Expected order %v, got %v", want, got)
 	}
+}
+
+func TestRegisterConcurrent(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+	t.Setenv("CRUSH_GLOBAL_DATA", filepath.Join(tmpDir, "crush"))
+
+	// Several gnosh processes started at once, as a script running
+	// `gnosh run` in a few worktrees does, each register their own
+	// directory. None of them may be lost.
+	const n = 20
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := range n {
+		wg.Go(func() {
+			dir := fmt.Sprintf("/home/user/project%d", i)
+			errs[i] = Register(dir, dir+"/.gnosh")
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
+		require.NoError(t, err)
+	}
+
+	projects, err := List()
+	require.NoError(t, err)
+	require.Len(t, projects, n)
 }
