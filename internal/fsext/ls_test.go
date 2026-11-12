@@ -49,6 +49,22 @@ func TestListDirectory(t *testing.T) {
 	})
 }
 
+// A directory with no subdirectory reaches the limit inside its own
+// listing, and the walk reports that as an error on the directory itself.
+func TestListDirectoryTruncatedFlatDirectory(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt", "d.txt"} {
+		require.NoError(t, os.WriteFile(filepath.Join(tmp, name), nil, 0o644))
+	}
+
+	files, truncated, err := ListDirectory(tmp, nil, 0, 2)
+	require.NoError(t, err)
+	require.Len(t, files, 2)
+	require.True(t, truncated)
+}
+
 func relPaths(tb testing.TB, in []string, base string) []string {
 	tb.Helper()
 	out := make([]string, 0, len(in))
