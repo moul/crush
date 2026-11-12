@@ -49,6 +49,22 @@ func TestListDirectory(t *testing.T) {
 	})
 }
 
+// A listing cut short on a file, not a directory, is still reported as
+// truncated: the walk hands the stop back to the callback as an error.
+func TestListDirectoryReportsTruncationOnFlatDirectory(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt", "d.txt", "e.txt"} {
+		require.NoError(t, os.WriteFile(filepath.Join(tmp, name), nil, 0o644))
+	}
+
+	files, truncated, err := ListDirectory(tmp, nil, -1, 3)
+	require.NoError(t, err)
+	require.Len(t, files, 3)
+	require.True(t, truncated, "five files listed with a limit of three")
+}
+
 func relPaths(tb testing.TB, in []string, base string) []string {
 	tb.Helper()
 	out := make([]string, 0, len(in))
