@@ -34,8 +34,9 @@ func applyTextEdits(uri protocol.DocumentURI, edits []protocol.TextEdit, encodin
 	// Track if file ends with a newline
 	endsWithNewline := len(content) > 0 && bytes.HasSuffix(content, []byte(lineEnding))
 
-	// Split into lines without the endings
-	lines := strings.Split(string(content), lineEnding)
+	// Split on "\n", as servers count lines, so a file that mixes line
+	// endings keeps the server's line numbers. A CRLF line keeps its "\r".
+	lines := strings.Split(string(content), "\n")
 
 	// Check for overlapping edits
 	for i, edit1 := range edits {
@@ -58,6 +59,9 @@ func applyTextEdits(uri protocol.DocumentURI, edits []protocol.TextEdit, encodin
 
 	// Apply each edit
 	for _, edit := range sortedEdits {
+		if lineEnding == "\r\n" {
+			edit.NewText = strings.ReplaceAll(strings.ReplaceAll(edit.NewText, "\r\n", "\n"), "\n", "\r\n")
+		}
 		newLines, err := applyTextEdit(lines, edit, encoding)
 		if err != nil {
 			return fmt.Errorf("failed to apply edit: %w", err)
@@ -69,7 +73,7 @@ func applyTextEdits(uri protocol.DocumentURI, edits []protocol.TextEdit, encodin
 	var newContent strings.Builder
 	for i, line := range lines {
 		if i > 0 {
-			newContent.WriteString(lineEnding)
+			newContent.WriteString("\n")
 		}
 		newContent.WriteString(line)
 	}
@@ -124,17 +128,18 @@ func applyTextEdit(lines []string, edit protocol.TextEdit, encoding powernap.Off
 	// Copy lines before edit
 	result = append(result, lines[:startLine]...)
 
-	// Get the prefix of the start line
+	// Get the prefix of the start line. A position past the end of a line
+	// is its end, before any "\r".
 	startLineContent := lines[startLine]
-	if startChar < 0 || startChar > len(startLineContent) {
-		startChar = len(startLineContent)
+	if n := len(strings.TrimSuffix(startLineContent, "\r")); startChar < 0 || startChar > n {
+		startChar = n
 	}
 	prefix := startLineContent[:startChar]
 
 	// Get the suffix of the end line
 	endLineContent := lines[endLine]
-	if endChar < 0 || endChar > len(endLineContent) {
-		endChar = len(endLineContent)
+	if n := len(strings.TrimSuffix(endLineContent, "\r")); endChar < 0 || endChar > n {
+		endChar = n
 	}
 	suffix := endLineContent[endChar:]
 

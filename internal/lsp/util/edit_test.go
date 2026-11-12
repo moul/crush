@@ -425,3 +425,81 @@ func TestApplyWorkspaceEdit_DeleteKeepsEmptyLine(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyWorkspaceEdit_LineEndings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		content  string
+		edits    []protocol.TextEdit
+		expected string
+	}{
+		{
+			// A server counts every "\n" as a line end, so here foo is on
+			// lines 1 and 2 even though line 0 ends in "\n" alone.
+			name:    "rename in a file with mixed line endings",
+			content: "// header\nfunc foo() {}\r\nvar _ = foo\r\n",
+			edits: []protocol.TextEdit{
+				{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: 1, Character: 5},
+						End:   protocol.Position{Line: 1, Character: 8},
+					},
+					NewText: "bar",
+				},
+				{
+					Range: protocol.Range{
+						Start: protocol.Position{Line: 2, Character: 8},
+						End:   protocol.Position{Line: 2, Character: 11},
+					},
+					NewText: "bar",
+				},
+			},
+			expected: "// header\nfunc bar() {}\r\nvar _ = bar\r\n",
+		},
+		{
+			name:    "edit past the end of a CRLF line keeps its CRLF",
+			content: "a\r\nfoo\r\nb\r\n",
+			edits: []protocol.TextEdit{{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: 1, Character: 0},
+					End:   protocol.Position{Line: 1, Character: 99},
+				},
+				NewText: "bar",
+			}},
+			expected: "a\r\nbar\r\nb\r\n",
+		},
+		{
+			name:    "multi-line text in a CRLF file is written with CRLF",
+			content: "a\r\nb\r\n",
+			edits: []protocol.TextEdit{{
+				Range: protocol.Range{
+					Start: protocol.Position{Line: 1, Character: 0},
+					End:   protocol.Position{Line: 1, Character: 0},
+				},
+				NewText: "x\ny\n",
+			}},
+			expected: "a\r\nx\r\ny\r\nb\r\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "file.go")
+			require.NoError(t, os.WriteFile(path, []byte(tt.content), 0o644))
+
+			edit := protocol.WorkspaceEdit{
+				Changes: map[protocol.DocumentURI][]protocol.TextEdit{
+					protocol.URIFromPath(path): tt.edits,
+				},
+			}
+			require.NoError(t, ApplyWorkspaceEdit(edit, powernap.UTF16))
+
+			got, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, string(got))
+		})
+	}
+}
