@@ -880,3 +880,42 @@ func TestGrepShowsTwoHundredFiftyLinesByDefault(t *testing.T) {
 	require.Equal(t, 250, strings.Count(out, "  Line "))
 	require.True(t, strings.HasSuffix(out, "\n[Showing results with pagination = limit: 250]"), out[len(out)-100:])
 }
+
+// A matching line keeps its indentation, as the context lines around it
+// do and as the walker keeps it. Stripping it left the line flush with
+// the margin in the middle of its own context, and left the Char column,
+// which counts from the start of the line in the file, pointing at
+// nothing in the text shown beside it.
+func TestRipgrepKeepsTheIndentationOfAMatchingLine(t *testing.T) {
+	rg, err := exec.LookPath("rg")
+	if err != nil {
+		t.Skip("rg is not installed")
+	}
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.go"),
+		[]byte("package main\n\nfunc main() {\n\tif ok {\n\t\tfmt.Println(\"hi\")\n\t}\n}\n"), 0o644))
+
+	setRipgrepForTest(t, rg)
+	withRipgrep := grepContent(t, dir, `{"pattern": "Println", "-C": 1}`)
+	require.Contains(t, withRipgrep, "  Line 5, Char 7: \t\tfmt.Println(\"hi\")\n")
+
+	opts := grepOptions{before: 1, after: 1}
+	fromRipgrep, err := searchWithRipgrep(t.Context(), "Println", dir, opts)
+	require.NoError(t, err)
+	fromWalker, err := searchFilesWithRegex("Println", dir, opts, 100)
+	require.NoError(t, err)
+	require.Equal(t, lineTexts(fromWalker), lineTexts(fromRipgrep))
+
+	setRipgrepForTest(t, "")
+	require.Equal(t, withRipgrep, grepContent(t, dir, `{"pattern": "Println", "-C": 1}`),
+		"the two engines answer the same search alike")
+}
+
+// lineTexts is each line's number and text, to compare two searches.
+func lineTexts(lines []grepMatch) []string {
+	var texts []string
+	for _, l := range lines {
+		texts = append(texts, fmt.Sprintf("%d:%s", l.lineNum, l.lineText))
+	}
+	return texts
+}

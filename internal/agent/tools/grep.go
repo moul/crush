@@ -526,12 +526,15 @@ func parseRipgrepMatches(output []byte) []grepMatch {
 			if err != nil {
 				continue // Skip files we can't access
 			}
+			// Only the line ending goes, as for a context line above:
+			// charNum counts from the start of the line in the file,
+			// and the walker keeps the indentation too.
 			matches = append(matches, grepMatch{
 				path:     match.Data.Path.Text,
 				modTime:  fi.ModTime(),
 				lineNum:  match.Data.LineNumber,
 				charNum:  m.Start + 1, // ensure 1-based
-				lineText: strings.TrimSpace(match.Data.Lines.Text),
+				lineText: strings.TrimRight(match.Data.Lines.Text, "\r\n"),
 			})
 			// only get the first match of each line
 			break
