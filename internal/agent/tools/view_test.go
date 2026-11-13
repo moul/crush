@@ -206,6 +206,64 @@ func TestViewToolOffsetIsALineNumber(t *testing.T) {
 	}
 }
 
+// A file that ends with a newline has no line after that newline. The
+// read used to hand the model one more line than the file has, numbered
+// and empty, so a model counting a file's lines, or appending to its
+// end, was one line out.
+func TestViewToolNumbersNoLineAfterAFinalNewline(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	filePath := filepath.Join(workingDir, "lines.txt")
+	require.NoError(t, os.WriteFile(filePath, []byte("one\ntwo\nthree\n"), 0o644))
+
+	tool := newViewToolForTest(workingDir)
+	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	resp := runViewTool(t, tool, ctx, ViewParams{FilePath: filePath})
+
+	require.False(t, resp.IsError, resp.Content)
+	require.Contains(t, resp.Content, "     3|three")
+	require.NotContains(t, resp.Content, "     4|")
+
+	// The file still comes back as its bytes, final newline included.
+	var meta ViewResponseMetadata
+	require.NoError(t, json.Unmarshal([]byte(resp.Metadata), &meta))
+	require.Equal(t, "one\ntwo\nthree\n", meta.Content)
+}
+
+// A file whose last line ends exactly at the read's byte limit is read
+// whole. The empty line a final newline used to add took the section one
+// byte past the limit, so the read was reported as cut short and the
+// model was told to read on from a line that is not there.
+func TestViewToolReadsAFileThatEndsAtTheSizeLimitWhole(t *testing.T) {
+	t.Parallel()
+
+	workingDir := t.TempDir()
+	filePath := filepath.Join(workingDir, "exact.txt")
+
+	const lines = 1000
+	section := make([]string, lines)
+	for i := range section {
+		section[i] = strings.Repeat("a", 99)
+	}
+	// The section the read builds is the lines plus one newline between
+	// each; pad the last line so that it is exactly the byte limit.
+	size := (len(section[0])+1)*lines - 1
+	section[lines-1] += strings.Repeat("a", readSizeLimit(filePath)-size)
+	require.NoError(t, os.WriteFile(filePath, []byte(strings.Join(section, "\n")+"\n"), 0o644))
+
+	tool := newViewToolForTest(workingDir)
+	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")
+	resp := runViewTool(t, tool, ctx, ViewParams{FilePath: filePath})
+
+	require.False(t, resp.IsError, resp.Content)
+	require.Contains(t, resp.Content, fmt.Sprintf("%6d|aaa", lines))
+	require.Falsef(t, strings.Contains(resp.Content, "Stopped after line"),
+		"the whole file was read, but the read reports it cut short")
+	require.Falsef(t, strings.Contains(resp.Content, "To read on, use offset"),
+		"the whole file was read, but the read sends the model past its end")
+}
+
 // An image that cannot be scaled down to fit, as one gnosh cannot
 // decode, is refused when it is over what goes to the model; a file too
 // big to be read at all is refused unread.
