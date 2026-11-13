@@ -125,3 +125,36 @@ func TestCommandRuleAllows(t *testing.T) {
 		}
 	}
 }
+
+// A wrapper option that takes a value but has none left after it, as
+// when the variable holding the value was unset, is skipped like any
+// other option instead of reading past the end of the command.
+func TestCommandRuleWrapperOptionWithoutItsValue(t *testing.T) {
+	t.Parallel()
+
+	block := CommandRuleBlocker("git push *")
+	for _, command := range []string{"timeout -s", "timeout -k", "nice -n", "stdbuf -o", "xargs -n"} {
+		args := strings.Fields(command)
+		require.NotPanicsf(t, func() { block(args) }, "deny rule against %q", command)
+		require.NotPanicsf(t, func() { AllowForm(args) }, "allow form of %q", command)
+	}
+}
+
+// The shell runs a command whose wrapper lost its option value to an
+// unset variable, and lets the wrapper itself report the mistake,
+// rather than refusing the whole line with an internal error.
+func TestRunAWrapperMissingItsOptionValue(t *testing.T) {
+	t.Parallel()
+
+	blocks := []BlockFunc{CommandRuleBlocker("touch *")}
+	var stdout, stderr strings.Builder
+	err := Run(t.Context(), RunOptions{
+		Command: "nice -n $NICENESS", Cwd: t.TempDir(),
+		Stdout: &stdout, Stderr: &stderr, BlockFuncs: blocks,
+	})
+	said := stderr.String()
+	if err != nil {
+		said += err.Error()
+	}
+	require.NotContains(t, said, "panic", "the command reaches nice: %s", said)
+}
