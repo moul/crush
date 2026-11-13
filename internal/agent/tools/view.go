@@ -374,7 +374,7 @@ func NewViewTool(
 			openInLSPs(ctx, lspManager, filePath)
 			waitForLSPDiagnostics(ctx, lspManager, filePath, 300*time.Millisecond)
 			output := "<file>\n"
-			output += addLineNumbers(content, skipped+1)
+			output += numbered(content, skipped+1, !hasMore)
 
 			cutShort := false
 			if hasMore {
@@ -442,11 +442,23 @@ func FileAsViewed(path string, limit, maxContentSize int) (string, error) {
 	if !utf8.ValidString(content) {
 		return "", errors.New("file content is not valid UTF-8")
 	}
-	text := "<file>\n" + addLineNumbers(content, 1)
+	text := "<file>\n" + numbered(content, 1, !hasMore)
 	if hasMore {
 		text += fmt.Sprintf("\n\n(File has more lines. To read on, use offset %d)", len(strings.Split(content, "\n"))+1)
 	}
 	return text + "\n</file>\n", nil
+}
+
+// numbered is content's lines, numbered from startLine. ended says
+// content runs to the end of the file: the final newline there ends the
+// last line and does not begin another, so a file that ends with one is
+// not given a numbered empty line past its end. A section cut short
+// keeps its last line, empty or not.
+func numbered(content string, startLine int, ended bool) string {
+	if ended {
+		content = strings.TrimSuffix(content, "\n")
+	}
+	return addLineNumbers(content, startLine)
 }
 
 func addLineNumbers(content string, startLine int) string {
@@ -521,12 +533,23 @@ func readTextFile(filePath string, offset, limit, maxContentSize int) (string, b
 
 	lines := make([]string, 0, min(limit, DefaultReadLimit))
 	contentSize := 0
+	// Whether the last line read ended with its newline, so that a
+	// section that runs to the end of the file comes back as the
+	// file's bytes, that newline included.
+	trailing := false
 
 	for len(lines) < limit {
 		lineText, err := reader.ReadString('\n')
 		if err != nil && err != io.EOF {
 			return "", false, err
 		}
+		if err == io.EOF && lineText == "" {
+			// The previous line's newline ended the file. It ends that
+			// line; it does not begin another, and an empty line here
+			// would be one the file does not have.
+			break
+		}
+		trailing = strings.HasSuffix(lineText, "\n")
 		lineText = strings.TrimSuffix(lineText, "\n")
 		lineText = strings.TrimSuffix(lineText, "\r")
 		if len(lineText) > MaxLineLength {
@@ -560,7 +583,11 @@ func readTextFile(filePath string, offset, limit, maxContentSize int) (string, b
 		hasMore = len(lineText) > 0 || peekErr == nil
 	}
 
-	return strings.Join(lines, "\n"), hasMore, nil
+	content := strings.Join(lines, "\n")
+	if trailing && !hasMore {
+		content += "\n"
+	}
+	return content, hasMore, nil
 }
 
 func getImageMimeType(filePath string) (bool, string) {
@@ -670,7 +697,7 @@ func readBuiltinFile(params ViewParams, skillTracker *skills.Tracker) (fantasy.T
 	}
 
 	output := "<file>\n"
-	output += addLineNumbers(strings.Join(lines, "\n"), skipped+1)
+	output += numbered(strings.Join(lines, "\n"), skipped+1, !hasMore)
 	if hasMore {
 		output += fmt.Sprintf("\n\n(File has more lines. To read on, use offset %d)", skipped+len(lines)+1)
 	}
