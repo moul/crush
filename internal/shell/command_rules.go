@@ -117,10 +117,14 @@ func skipOptions(args []string, valued map[string]bool) []string {
 			args = args[1:]
 			break
 		}
+		skip := 1
 		if valued[args[0]] {
-			args = args[1:]
+			// The value is the next argument, unless the option is
+			// the last one, as when the variable holding its value
+			// was unset.
+			skip = 2
 		}
-		args = args[1:]
+		args = args[min(skip, len(args)):]
 	}
 	if len(args) == 0 {
 		return nil
