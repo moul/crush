@@ -673,6 +673,29 @@ func TestSearchFilesWithTheRealRipgrep(t *testing.T) {
 	require.Len(t, matches, 1, "include still filters: a.txt's Start is left out")
 }
 
+// A project's ignore files keep their files out of a ripgrep search, and
+// the ignore file itself is not searched: both only hold when
+// --ignore-file goes in before the "--" that ends the options.
+func TestRipgrepHonoursTheProjectIgnoreFiles(t *testing.T) {
+	rg, err := exec.LookPath("rg")
+	if err != nil {
+		t.Skip("rg is not installed")
+	}
+	setRipgrepForTest(t, rg)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "kept.txt"), []byte("needle\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "vendored.txt"), []byte("needle\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gnoshignore"), []byte("vendored.txt\n# needle\n"), 0o644))
+
+	matches, _, err := searchFiles(t.Context(), "needle", dir, grepOptions{}, 100)
+	require.NoError(t, err)
+	var found []string
+	for _, m := range matches {
+		found = append(found, filepath.Base(m.path))
+	}
+	require.ElementsMatch(t, []string{"kept.txt"}, found)
+}
+
 // ignore_case matches regardless of case, as grep -i does, so a model has
 // no reason to search in the shell for that.
 func TestGrepIgnoreCase(t *testing.T) {
