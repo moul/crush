@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"log/slog"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -71,6 +72,14 @@ func getRgSearchCmd(ctx context.Context, pattern, path string, opts grepOptions)
 	}
 	if opts.multiline {
 		args = append(args, "--multiline", "--multiline-dotall")
+	}
+	// The project's ignore files, before the "--": after it ripgrep reads
+	// an option as one more path to search.
+	for _, ignoreFile := range []string{".gitignore", ".gnoshignore", ".klashignore", ".crushignore"} {
+		ignorePath := filepath.Join(path, ignoreFile)
+		if _, err := os.Stat(ignorePath); err == nil {
+			args = append(args, "--ignore-file", ignorePath)
+		}
 	}
 	args = append(args, "--", path)
 

@@ -459,14 +459,6 @@ func searchWithRipgrep(ctx context.Context, pattern, path string, opts grepOptio
 		return nil, fmt.Errorf("%w: ripgrep not found in $PATH", exec.ErrNotFound)
 	}
 
-	// Only add ignore files if they exist
-	for _, ignoreFile := range []string{".gitignore", ".gnoshignore", ".klashignore", ".crushignore"} {
-		ignorePath := filepath.Join(path, ignoreFile)
-		if _, err := os.Stat(ignorePath); err == nil {
-			cmd.Args = append(cmd.Args, "--ignore-file", ignorePath)
-		}
-	}
-
 	output, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
