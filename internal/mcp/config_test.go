@@ -168,3 +168,41 @@ func TestGivenConfig(t *testing.T) {
 		t.Errorf("with Strict: %d servers, want the 2 given", len(got))
 	}
 }
+
+// The problems one file raises come in the order of the servers' names,
+// and each unset variable is named once, as the withheld ones are.
+func TestConfigProblemsInOrder(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	user := filepath.Join(dir, "mcp.json")
+	os.WriteFile(user, []byte(`{"mcpServers": {
+		"alpha": {"type": "sse", "url": "https://a.example.org"},
+		"beta": {"type": "sse", "url": "https://b.example.org"},
+		"gamma": {"type": "sse", "url": "https://c.example.org"},
+		"delta": {"type": "sse", "url": "https://d.example.org"},
+		"vars": {"command": "${ONE}", "args": ["${TWO}", "${ONE}"], "env": {"X": "${THREE}", "Y": "${FOUR}"}}
+	}}`), 0o644)
+	getenv := func(string) (string, bool) { return "", false }
+	src := Sources{User: user, Root: dir, Getenv: getenv}
+
+	const vars = "it names variables that are not set and have no default: FOUR, ONE, THREE, TWO; they are left as written"
+	_, probs := LoadConfig(src)
+	for _, p := range probs {
+		if p.Server == "vars" && p.Message != vars {
+			t.Errorf("the server %q:\n\t%s\nwant\n\t%s", p.Server, p.Message, vars)
+		}
+	}
+
+	// Map order is not the same twice, so one run proves nothing.
+	want := []string{"alpha", "beta", "delta", "gamma", "vars"}
+	for range 20 {
+		_, probs := LoadConfig(src)
+		var names []string
+		for _, p := range probs {
+			names = append(names, p.Server)
+		}
+		if strings.Join(names, " ") != strings.Join(want, " ") {
+			t.Fatalf("the problems came in the order %v, want %v", names, want)
+		}
+	}
+}

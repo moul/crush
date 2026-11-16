@@ -215,7 +215,15 @@ func parseConfig(path, scope string, servers map[string]json.RawMessage, project
 		return getenv(name)
 	}
 	var out []Config
-	for name, raw := range servers {
+	// By name, so that the problems a file raises are the same text in
+	// the same order every run; a map is read in no order at all.
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		raw := servers[name]
 		var e struct {
 			Type    string            `json:"type"`
 			Command string            `json:"command"`
@@ -296,6 +304,8 @@ func parseConfig(path, scope string, servers map[string]json.RawMessage, project
 			c.Timeout = time.Duration(*e.Timeout) * time.Millisecond
 		}
 		if len(unset) > 0 {
+			sort.Strings(unset)
+			unset = slices.Compact(unset)
 			probs = append(probs, Problem{Path: path, Server: name, Message: "it names variables that are not set and have no default: " + strings.Join(unset, ", ") + "; they are left as written"})
 		}
 		if len(kept) > 0 {
