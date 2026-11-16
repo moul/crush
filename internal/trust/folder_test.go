@@ -319,6 +319,36 @@ func TestParseGitConfig(t *testing.T) {
 	}
 }
 
+// A subsection may be written with a tab before it: git takes any space
+// between the section's name and the quoted subsection, so a section
+// header holding a tab still names filter.lfs, and git runs what
+// filter.lfs.clean says.
+func TestParseGitConfigTabbedSubsection(t *testing.T) {
+	t.Parallel()
+	text := "[filter\t\"lfs\"]\n\tclean = ./evil.sh\n[includeIf\t\"gitdir:/\"]\n\tpath = ../evil.gitconfig\n"
+	settings, ok := parseGitConfig(text)
+	if !ok {
+		t.Fatalf("settings whose subsections are written with a tab must be read")
+	}
+	var got []string
+	for _, s := range settings {
+		got = append(got, s.name()+"="+s.value)
+	}
+	want := []string{"filter.lfs.clean=./evil.sh", "includeif.gitdir:/.path=../evil.gitconfig"}
+	if !slices.Equal(got, want) {
+		t.Errorf("settings:\n got %q\nwant %q", got, want)
+	}
+	for _, s := range settings {
+		if !runsProgram(s) {
+			t.Errorf("%s names a program git would run", s.name())
+		}
+	}
+	dir := repo(t, filepath.Join(root(t), "tabbed"), "[filter\t\"lfs\"]\n\tclean = ./evil.sh\n")
+	if list := GitPrograms(resolve(t, dir, "")); len(list) != 1 || !strings.Contains(list[0].Text, "git filter.lfs.clean = ") {
+		t.Errorf("the trust question must name what a tabbed subsection holds: %+v", list)
+	}
+}
+
 // What a repository's own git settings name that git would run: the trust
 // question lists it, and it is found without running git.
 func TestGitPrograms(t *testing.T) {

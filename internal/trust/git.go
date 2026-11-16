@@ -50,8 +50,13 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 				return nil, false
 			}
 			head := strings.TrimSpace(line[1:end])
-			name, rest, quoted := strings.Cut(head, " ")
-			if !quoted {
+			// git takes any space, a tab included, between the
+			// section's name and the quoted subsection.
+			name, rest, spaced := head, "", false
+			if i := strings.IndexAny(head, " \t\v\f"); i >= 0 {
+				name, rest, spaced = head[:i], head[i+1:], true
+			}
+			if !spaced {
 				// The older spelling: [section.subsection].
 				name, rest, _ = strings.Cut(head, ".")
 			} else {
