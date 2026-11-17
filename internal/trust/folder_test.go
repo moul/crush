@@ -319,6 +319,29 @@ func TestParseGitConfig(t *testing.T) {
 	}
 }
 
+// A value that ends in an escaped backslash ends there: git reads "a\\"
+// as the value "a\" and reads the next line on its own. Only a backslash
+// that is not itself escaped joins a line to the one after it.
+func TestParseGitConfigEscapedBackslash(t *testing.T) {
+	const config = "[user]\n\tname = a\\\\\n[alias]\n\tboom = !./evil.sh\n"
+	settings, ok := parseGitConfig(config)
+	if !ok {
+		t.Fatalf("these settings must be read")
+	}
+	var got []string
+	for _, s := range settings {
+		got = append(got, s.name()+"="+s.value)
+	}
+	if want := []string{`user.name=a\`, "alias.boom=!./evil.sh"}; !slices.Equal(got, want) {
+		t.Fatalf("settings:\n got %q\nwant %q", got, want)
+	}
+	// The alias is the repository's own, so the trust question names it.
+	dir := repo(t, filepath.Join(root(t), "hidden"), config)
+	if progs := GitPrograms(resolve(t, dir, "")); len(progs) != 1 || !strings.Contains(progs[0].Text, "git alias.boom = ") {
+		t.Errorf("the alias git would run: %+v", progs)
+	}
+}
+
 // What a repository's own git settings name that git would run: the trust
 // question lists it, and it is found without running git.
 func TestGitPrograms(t *testing.T) {

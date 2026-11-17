@@ -36,7 +36,7 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 	for i := 0; i < len(lines); i++ {
 		num := i + 1
 		line := strings.TrimRight(lines[i], "\r")
-		for strings.HasSuffix(line, "\\") && i+1 < len(lines) {
+		for joinsOn(line) && i+1 < len(lines) {
 			i++
 			line = line[:len(line)-1] + strings.TrimRight(lines[i], "\r")
 		}
@@ -90,6 +90,18 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 		settings = append(settings, gitSetting{section: section, sub: sub, key: key, value: gitValue(value), line: num})
 	}
 	return settings, true
+}
+
+// joinsOn reports whether a line ends in a backslash that joins it to the
+// next line. A backslash that is itself escaped does not: git reads the
+// two characters of "a\\" as one backslash and ends the value there, so
+// what follows is a line of its own.
+func joinsOn(line string) bool {
+	n := 0
+	for n < len(line) && line[len(line)-1-n] == '\\' {
+		n++
+	}
+	return n%2 == 1
 }
 
 // closingBracket finds the ] that ends a section header, passing over one
