@@ -149,18 +149,27 @@ func cleanName(line string) string {
 	return name
 }
 
-// fit is how well a name fits a text: how many of the name's words the
-// text shares, where two words are shared when they are the same, or one
-// begins the other and is four letters or more.
-func fit(name, text string) int {
+// wordsOf is the words of a text that a name's are set against: its runs
+// of lower-case letters and digits.
+func wordsOf(text string) []string {
+	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	})
+}
+
+// fit is how well a name fits a text, whose words wordsOf gave: how many
+// of the name's words the text shares, where two words are shared when
+// they are the same, or one begins the other and is four letters or more.
+func fit(name string, textWords []string) int {
 	if name == "" {
 		return 0
 	}
-	textWords := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
-	})
 	n := 0
-	for _, w := range strings.Split(name, "-") {
+	// The name's words are walked rather than split off, so that trying
+	// every order of the names allocates nothing.
+	for rest := name; rest != ""; {
+		var w string
+		w, rest, _ = strings.Cut(rest, "-")
 		for _, t := range textWords {
 			if w == t || (len(w) >= 4 && strings.HasPrefix(t, w)) || (len(t) >= 4 && strings.HasPrefix(w, t)) {
 				n++
@@ -180,12 +189,18 @@ func fit(name, text string) int {
 func matchNames(texts, names []string) []string {
 	out := make([]string, len(texts))
 	copy(out, names)
+	// Every order is set against the same texts, so their words are worked
+	// out once here rather than once per fit: seven texts are 5,040 orders.
+	words := make([][]string, len(texts))
+	for i, text := range texts {
+		words[i] = wordsOf(text)
+	}
 	if len(texts) > 1 && len(texts) <= maxMatched {
-		best, bestFit := out, total(texts, out)
+		best, bestFit := out, total(words, out)
 		perm := make([]string, len(out))
 		copy(perm, out)
 		permute(perm, 0, func(order []string) {
-			if f := total(texts, order); f > bestFit {
+			if f := total(words, order); f > bestFit {
 				bestFit = f
 				best = append([]string(nil), order...)
 			}
@@ -197,7 +212,7 @@ func matchNames(texts, names []string) []string {
 		if name == "" {
 			continue
 		}
-		if fit(name, texts[i]) == 0 || seen[name] {
+		if fit(name, words[i]) == 0 || seen[name] {
 			out[i] = ""
 			continue
 		}
@@ -206,12 +221,12 @@ func matchNames(texts, names []string) []string {
 	return out
 }
 
-// total is how well names fit texts, each name with the text at its
-// place.
-func total(texts, names []string) int {
+// total is how well names fit texts, each name with the words of the text
+// at its place.
+func total(words [][]string, names []string) int {
 	n := 0
 	for i, name := range names {
-		n += fit(name, texts[i])
+		n += fit(name, words[i])
 	}
 	return n
 }

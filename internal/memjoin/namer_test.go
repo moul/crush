@@ -137,3 +137,32 @@ func TestNamerNamesTheTextsOfACall(t *testing.T) {
 		t.Errorf("the names handed to mem with the first call: %v", first)
 	}
 }
+
+// Every order of the names is set against the same texts, so each text is
+// split into words once and not once per order. Seven texts are the most
+// matchNames tries every order of, and 5,040 orders of seven names are
+// 35,280 fits: splitting the texts inside fit makes the work of naming one
+// plan's todos grow with the factorial.
+func TestMatchNamesSplitsEachTextOnce(t *testing.T) {
+	texts := []string{
+		"write the bus journal reader",
+		"add gas and storage to each entry",
+		"wire the reader into the status line",
+		"document the journal format",
+		"test the reader against a fixture",
+		"handle a journal that was truncated",
+		"report a journal the node no longer keeps",
+	}
+	names := []string{
+		"write-bus-journal-reader", "add-gas-storage-entry", "wire-reader-status-line",
+		"document-journal-format", "test-reader-fixture", "handle-truncated-journal",
+		"report-journal-gone",
+	}
+	if len(texts) != maxMatched || len(names) != maxMatched {
+		t.Fatalf("the case wants %d texts and names", maxMatched)
+	}
+	allocs := testing.AllocsPerRun(1, func() { matchNames(texts, names) })
+	if allocs > 2000 {
+		t.Errorf("matchNames allocated %.0f times for %d texts; it should split each text once, not once per order of the names", allocs, len(texts))
+	}
+}
