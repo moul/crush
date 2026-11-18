@@ -32,6 +32,9 @@ import (
 type Schema struct {
 	root     any
 	patterns map[string]*regexp.Regexp
+	// refs holds the $refs already followed while checking, so that a
+	// schema that refers to itself is checked once and not for ever.
+	refs map[string]bool
 }
 
 // Compile reads a schema and checks that it can be used: valid JSON, an
@@ -42,7 +45,7 @@ func Compile(text string) (*Schema, error) {
 	if err != nil {
 		return nil, fmt.Errorf("it is not JSON: %v", err)
 	}
-	s := &Schema{root: root, patterns: map[string]*regexp.Regexp{}}
+	s := &Schema{root: root, patterns: map[string]*regexp.Regexp{}, refs: map[string]bool{}}
 	if err := s.check(root, "#"); err != nil {
 		return nil, err
 	}
@@ -175,8 +178,21 @@ func (s *Schema) check(node any, at string) error {
 			if !ok {
 				return bad(key, "a string")
 			}
-			if _, err := s.resolve(ref); err != nil {
+			target, err := s.resolve(ref)
+			if err != nil {
 				return fmt.Errorf("%s/$ref: %v", at, err)
+			}
+			// The walk above goes through the places a schema keeps its
+			// parts, and a $ref may point outside them: a schema written
+			// the way OpenAPI writes one keeps them under
+			// /components/schemas. Check what it points at where that
+			// stands, so that its patterns are compiled and its keywords
+			// are read wherever it is.
+			if !s.refs[ref] {
+				s.refs[ref] = true
+				if err := s.check(target, ref); err != nil {
+					return err
+				}
 			}
 		}
 	}

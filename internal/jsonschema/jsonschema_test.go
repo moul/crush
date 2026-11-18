@@ -3,6 +3,8 @@ package jsonschema
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func mustCompile(t *testing.T, text string) *Schema {
@@ -122,4 +124,28 @@ func TestCompileErrors(t *testing.T) {
 	if err := check(t, mustCompile(t, `false`), `1`); err == nil {
 		t.Errorf("the schema false allowed a value")
 	}
+}
+
+// A $ref may point outside the places a schema usually keeps its parts: a
+// schema written the way OpenAPI writes one keeps them under
+// /components/schemas. What it points at is a schema all the same, so its
+// pattern holds, and a keyword of the wrong shape in it makes the whole
+// schema invalid.
+func TestRefOutsideTheUsualPlaces(t *testing.T) {
+	t.Parallel()
+	s := mustCompile(t, `{
+		"$ref": "#/components/schemas/id",
+		"components": {"schemas": {"id": {"type": "string", "pattern": "^[a-z]+-[0-9]+$"}}}
+	}`)
+	require.NoError(t, check(t, s, `"ab-12"`))
+	err := check(t, s, `"AB-12"`)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match the pattern")
+
+	_, err = Compile(`{
+		"$ref": "#/components/schemas/id",
+		"components": {"schemas": {"id": {"type": "text"}}}
+	}`)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "which is no JSON type")
 }
