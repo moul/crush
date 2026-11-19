@@ -321,6 +321,33 @@ func TestParseGitConfig(t *testing.T) {
 	}
 }
 
+// A backslash at the end of a line joins it to the next one only where
+// git joins them: a backslash that is itself escaped ends the value, and
+// one in a comment ends nothing. The setting on the line after must still
+// be read, or a repository could hide a program behind it.
+func TestParseGitConfigJoinedLines(t *testing.T) {
+	cases := []struct{ name, text string }{
+		{"an escaped backslash ends the value", "[core]\n\texcludesFile = x\\\\\n\tsshCommand = ./evil.sh\n"},
+		{"a comment that ends with a backslash", "[core]\n# note \\\n\tsshCommand = ./evil.sh\n"},
+		{"a value's comment that ends with one", "[core]\n\texcludesFile = x # note \\\n\tsshCommand = ./evil.sh\n"},
+		{"a \";\" comment that ends with one", "[core]\n; note \\\n\tsshCommand = ./evil.sh\n"},
+	}
+	for _, c := range cases {
+		settings, ok := parseGitConfig(c.text)
+		if !ok {
+			t.Errorf("%s: the settings file was not read", c.name)
+			continue
+		}
+		var got []string
+		for _, s := range settings {
+			got = append(got, s.name()+"="+s.value)
+		}
+		if !slices.Contains(got, "core.sshcommand=./evil.sh") {
+			t.Errorf("%s: settings %q, want core.sshcommand=./evil.sh among them", c.name, got)
+		}
+	}
+}
+
 // What a repository's own git settings name that git would run: the trust
 // question lists it, and it is found without running git.
 func TestGitPrograms(t *testing.T) {

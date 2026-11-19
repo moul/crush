@@ -36,7 +36,7 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 	for i := 0; i < len(lines); i++ {
 		num := i + 1
 		line := strings.TrimRight(lines[i], "\r")
-		for strings.HasSuffix(line, "\\") && i+1 < len(lines) {
+		for joinsNext(line) && i+1 < len(lines) {
 			i++
 			line = line[:len(line)-1] + strings.TrimRight(lines[i], "\r")
 		}
@@ -90,6 +90,30 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 		settings = append(settings, gitSetting{section: section, sub: sub, key: key, value: gitValue(value), line: num})
 	}
 	return settings, true
+}
+
+// joinsNext reports whether a line goes on into the one after it: git
+// reads a backslash and a line break in a value as nothing, so the value
+// carries on. Only a backslash that stands for itself does that. One that
+// is escaped ("x\\") is a backslash in the value and ends the line, and
+// one in a comment is part of the comment, which ends at the line break.
+func joinsNext(line string) bool {
+	quoted := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		switch {
+		case c == '\\':
+			if i+1 == len(line) {
+				return true
+			}
+			i++
+		case c == '"':
+			quoted = !quoted
+		case (c == '#' || c == ';') && !quoted:
+			return false
+		}
+	}
+	return false
 }
 
 // closingBracket finds the ] that ends a section header, passing over one
