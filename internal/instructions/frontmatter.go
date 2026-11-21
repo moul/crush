@@ -108,7 +108,9 @@ func frontmatterPaths(lines []string) (paths []string, problem string) {
 }
 
 // cutKey splits a "name: value" line. The colon must end the line or be
-// followed by a space. The name may be quoted.
+// followed by a space. The name may be quoted. What follows the colon is a
+// comment when it opens with "#", since the colon is followed by a space,
+// and then the field has no value on its own line.
 func cutKey(line string) (key, val string, ok bool) {
 	at := -1
 	for i := 0; i < len(line); i++ {
@@ -127,7 +129,11 @@ func cutKey(line string) (key, val string, ok bool) {
 	if key == "" || strings.HasPrefix(key, "- ") || key == "-" {
 		return "", "", false
 	}
-	return key, strings.TrimSpace(line[at+1:]), true
+	val = strings.TrimSpace(line[at+1:])
+	if strings.HasPrefix(val, "#") {
+		val = ""
+	}
+	return key, val, true
 }
 
 // pathsValue reads the value of the "paths" field: val is what follows the
