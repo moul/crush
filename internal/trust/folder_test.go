@@ -425,3 +425,25 @@ func TestGitConfigThatIsAPipe(t *testing.T) {
 		t.Fatal("reading the repository's git settings waited on the pipe")
 	}
 }
+
+// git ends a section's name at any blank, so [filter<tab>"lfs"] names the
+// same settings as [filter "lfs"] and the programs under it must be found.
+func TestParseGitConfigSubsectionAfterABlank(t *testing.T) {
+	for _, c := range []struct{ name, text string }{
+		{"a tab", "[filter\t\"lfs\"]\n\tclean = ./evil.sh\n"},
+		{"a carriage return", "[filter\r\"lfs\"]\n\tclean = ./evil.sh\n"},
+		{"a tab and a space", "[filter\t \"lfs\"]\n\tclean = ./evil.sh\n"},
+	} {
+		settings, ok := parseGitConfig(c.text)
+		if !ok || len(settings) != 1 {
+			t.Errorf("%s: parseGitConfig(%q) = %+v, %v", c.name, c.text, settings, ok)
+			continue
+		}
+		if got := settings[0].name(); got != "filter.lfs.clean" {
+			t.Errorf("%s: the setting is %q, want %q", c.name, got, "filter.lfs.clean")
+		}
+		if !runsProgram(settings[0]) {
+			t.Errorf("%s: %q is a program git runs and was not taken for one", c.name, settings[0].name())
+		}
+	}
+}

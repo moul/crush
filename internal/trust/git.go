@@ -50,7 +50,7 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 				return nil, false
 			}
 			head := strings.TrimSpace(line[1:end])
-			name, rest, quoted := strings.Cut(head, " ")
+			name, rest, quoted := cutBlank(head)
 			if !quoted {
 				// The older spelling: [section.subsection].
 				name, rest, _ = strings.Cut(head, ".")
@@ -90,6 +90,17 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 		settings = append(settings, gitSetting{section: section, sub: sub, key: key, value: gitValue(value), line: num})
 	}
 	return settings, true
+}
+
+// cutBlank splits a section header at the blank that ends the section's
+// name. git ends the name at a space, a tab or a carriage return alike, so
+// [filter<tab>"lfs"] names the same settings as [filter "lfs"].
+func cutBlank(head string) (name, rest string, found bool) {
+	i := strings.IndexAny(head, " \t\r")
+	if i < 0 {
+		return head, "", false
+	}
+	return head[:i], head[i+1:], true
 }
 
 // closingBracket finds the ] that ends a section header, passing over one
