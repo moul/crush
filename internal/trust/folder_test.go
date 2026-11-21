@@ -425,3 +425,50 @@ func TestGitConfigThatIsAPipe(t *testing.T) {
 		t.Fatal("reading the repository's git settings waited on the pipe")
 	}
 }
+
+// A backslash at the end of a comment does not join the line that follows
+// to it: git ends a value at an unquoted # or ;, and reads nothing after
+// it on that line, so the setting on the next line is a setting of its
+// own. Joining the lines hides it, and a repository handed over with such
+// a settings file passes the trust question with a program named in it.
+func TestParseGitConfigCommentEndingInBackslash(t *testing.T) {
+	t.Parallel()
+	hidden := "\tsshCommand = ssh -o ProxyCommand=./evil.sh\n"
+	for _, first := range []string{"\tbare = false # \\\n", "\tbare = false ; \\\n", "\tbare = false\n# a note \\\n"} {
+		text := "[core]\n" + first + hidden
+		settings, ok := parseGitConfig(text)
+		if !ok {
+			t.Fatalf("%q: a settings file of this shape must be read", text)
+		}
+		var got []string
+		for _, s := range settings {
+			got = append(got, s.name()+"="+s.value)
+		}
+		want := []string{"core.bare=false", "core.sshcommand=ssh -o ProxyCommand=./evil.sh"}
+		if !slices.Equal(got, want) {
+			t.Errorf("%q:\n got %q\nwant %q", text, got, want)
+		}
+	}
+}
+
+// A # inside quotes opens no comment, so a value that holds one still
+// joins the line that follows it.
+func TestParseGitConfigQuotedHashStillJoins(t *testing.T) {
+	t.Parallel()
+	settings, ok := parseGitConfig("[core]\n\tpager = \"a # b\" \\\nc\n")
+	if !ok || len(settings) != 1 || settings[0].value != "a # b c" {
+		t.Errorf("a quoted # in a value that is joined to the next line: %+v (ok %v)", settings, ok)
+	}
+}
+
+// The same settings file, as a repository: the trust question must name
+// the program it holds.
+func TestGitProgramsAfterCommentEndingInBackslash(t *testing.T) {
+	t.Parallel()
+	tmp := root(t)
+	dir := repo(t, filepath.Join(tmp, "hidden"), "[core]\n\tignorecase = false # \\\n\tsshCommand = ssh -o ProxyCommand=./evil.sh\n")
+	got := GitPrograms(resolve(t, dir, ""))
+	if len(got) != 1 || !strings.Contains(got[0].Text, "git core.sshcommand = ") {
+		t.Errorf("a settings file that hides sshCommand behind a comment ending in a backslash: %+v", got)
+	}
+}

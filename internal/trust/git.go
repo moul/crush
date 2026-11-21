@@ -36,7 +36,7 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 	for i := 0; i < len(lines); i++ {
 		num := i + 1
 		line := strings.TrimRight(lines[i], "\r")
-		for strings.HasSuffix(line, "\\") && i+1 < len(lines) {
+		for strings.HasSuffix(line, "\\") && !commented(line) && i+1 < len(lines) {
 			i++
 			line = line[:len(line)-1] + strings.TrimRight(lines[i], "\r")
 		}
@@ -90,6 +90,25 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 		settings = append(settings, gitSetting{section: section, sub: sub, key: key, value: gitValue(value), line: num})
 	}
 	return settings, true
+}
+
+// commented reports whether a line ends inside a comment, which a "#" or a
+// ";" outside quotes opens. Git reads nothing after one to the end of the
+// line, not even a backslash, so such a line never joins the next one to
+// itself.
+func commented(line string) bool {
+	quoted := false
+	for i := 0; i < len(line); i++ {
+		switch c := line[i]; {
+		case c == '\\':
+			i++
+		case c == '"':
+			quoted = !quoted
+		case (c == '#' || c == ';') && !quoted:
+			return true
+		}
+	}
+	return false
 }
 
 // closingBracket finds the ] that ends a section header, passing over one
