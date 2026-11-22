@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+// headBlanks are the characters that may hold a subsection off its
+// section's name in a header, as git counts a blank there: a space, a tab
+// or a carriage return, and not the vertical tab or the form feed.
+const headBlanks = " \t\r"
+
 // gitSetting is one "key = value" of a git config file.
 type gitSetting struct {
 	// section and key are in lower case, as git compares them; sub is the
@@ -50,8 +55,12 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 				return nil, false
 			}
 			head := strings.TrimSpace(line[1:end])
-			name, rest, quoted := strings.Cut(head, " ")
-			if !quoted {
+			name, rest := head, ""
+			held := false
+			if i := strings.IndexAny(head, headBlanks); i >= 0 {
+				name, rest, held = head[:i], head[i+1:], true
+			}
+			if !held {
 				// The older spelling: [section.subsection].
 				name, rest, _ = strings.Cut(head, ".")
 			} else {
