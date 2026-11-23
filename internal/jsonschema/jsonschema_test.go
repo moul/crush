@@ -128,3 +128,31 @@ func TestCompileErrors(t *testing.T) {
 		t.Errorf("the schema false allowed a value")
 	}
 }
+
+// contains says a list must hold an item the subschema matches.
+func TestContains(t *testing.T) {
+	t.Parallel()
+	s := mustCompile(t, `{
+		"type": "object",
+		"properties": {
+			"steps": {
+				"type": "array",
+				"items": {"type": "object", "properties": {"kind": {"type": "string"}}},
+				"contains": {"properties": {"kind": {"const": "done"}}, "required": ["kind"]}
+			}
+		}
+	}`)
+	for value, want := range map[string]string{
+		`{"steps": [{"kind": "start"}, {"kind": "done"}]}`: "",
+		`{"steps": [{"kind": "start"}]}`:                   "$.steps: no item matches the schema contains wants",
+		`{"steps": []}`:                                    "$.steps: no item matches the schema contains wants",
+	} {
+		err := check(t, s, value)
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s: %v", value, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: got %v, want %q", value, err, want)
+		}
+	}
+}
