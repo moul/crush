@@ -12,12 +12,12 @@
 // the same schema ("#", "#/$defs/name", "#/definitions/name"). format is
 // accepted and not enforced, as Claude Code has it; keywords it does not
 // know are left alone, as JSON Schema says, but for the ones that would
-// hold an answer to more than it checks (if/then/else, minContains and
-// maxContains, dependentRequired, dependentSchemas, dependencies,
-// unevaluated*),
-// which make the schema refused: an answer could pass without meeting
-// them (the side-request review of 2026-11-19). A known keyword whose
-// value has the wrong shape makes the schema invalid.
+// hold an answer to more than it checks (if/then/else, contains,
+// minContains and maxContains, dependentRequired, dependentSchemas,
+// dependencies, unevaluated*), which make the schema refused: an answer
+// could pass without meeting them (the side-request review of
+// 2026-11-19). A known keyword whose value has the wrong shape makes the
+// schema invalid.
 package jsonschema
 
 import (
@@ -84,7 +84,7 @@ func (s *Schema) check(node any, at string) error {
 	}
 	for key, v := range m {
 		switch key {
-		case "if", "then", "else", "minContains", "maxContains", "dependentRequired", "dependentSchemas", "dependencies", "unevaluatedProperties", "unevaluatedItems":
+		case "if", "then", "else", "contains", "minContains", "maxContains", "dependentRequired", "dependentSchemas", "dependencies", "unevaluatedProperties", "unevaluatedItems":
 			return fmt.Errorf("%s/%s is a keyword gnosh does not check, so an answer could pass without meeting it: write the schema without it", at, key)
 		case "type":
 			switch t := v.(type) {
@@ -138,7 +138,7 @@ func (s *Schema) check(node any, at string) error {
 			if _, ok := v.(bool); !ok {
 				return bad(key, "true or false")
 			}
-		case "items", "additionalProperties", "not", "propertyNames", "contains", "additionalItems":
+		case "items", "additionalProperties", "not", "propertyNames", "additionalItems":
 			if list, ok := v.([]any); ok && key == "items" {
 				for i, x := range list {
 					if err := s.check(x, fmt.Sprintf("%s/items/%d", at, i)); err != nil {

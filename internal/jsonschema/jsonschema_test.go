@@ -110,6 +110,7 @@ func TestCompileErrors(t *testing.T) {
 		// Keywords that would hold an answer to more than is checked.
 		`{"if": {"required": ["a"]}, "then": {"required": ["b"]}}`:            "a keyword gnosh does not check",
 		`{"properties": {"l": {"contains": {"const": 1}, "minContains": 2}}}`: "a keyword gnosh does not check",
+		`{"type": "array", "contains": {"type": "string"}}`:                   "a keyword gnosh does not check",
 		`{"dependentRequired": {"a": ["b"]}}`:                                 "a keyword gnosh does not check",
 		`{"type": "object", "unevaluatedProperties": false}`:                  "a keyword gnosh does not check",
 	} {
