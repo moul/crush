@@ -128,3 +128,28 @@ func TestCompileErrors(t *testing.T) {
 		t.Errorf("the schema false allowed a value")
 	}
 }
+
+// contains: a list conforms when at least one of its items matches.
+func TestContains(t *testing.T) {
+	s := mustCompile(t, `{
+		"type": "object",
+		"properties": {
+			"files": {"type": "array", "contains": {"type": "string", "pattern": "\\.go$"}}
+		}
+	}`)
+	for value, want := range map[string]string{
+		`{"files": ["main.go"]}`:           "",
+		`{"files": ["README.md", "a.go"]}`: "",
+		`{"files": ["README.md"]}`:         "$.files: it has no item that matches the schema contains asks for",
+		`{"files": []}`:                    "$.files: it has no item that matches the schema contains asks for",
+		`{"files": [1, 2]}`:                "$.files: it has no item that matches the schema contains asks for",
+	} {
+		err := check(t, s, value)
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s: %v", value, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: got %v, want %q", value, err, want)
+		}
+	}
+}
