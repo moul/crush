@@ -6,7 +6,7 @@
 // and const; minimum, maximum, exclusiveMinimum, exclusiveMaximum and
 // multipleOf; minLength, maxLength and pattern (Go's regular expressions);
 // items (a schema, or a list as draft-07 writes a tuple), prefixItems,
-// minItems, maxItems and uniqueItems; properties, required,
+// contains, minItems, maxItems and uniqueItems; properties, required,
 // additionalProperties, patternProperties, propertyNames, minProperties
 // and maxProperties; allOf, anyOf, oneOf and not; and $ref to a place in
 // the same schema ("#", "#/$defs/name", "#/definitions/name"). format is
@@ -360,6 +360,19 @@ func (s *Schema) validateArray(m map[string]any, list []any, path string, errs *
 					fail("items %d and %d are the same, and the schema wants every item different", i, j)
 				}
 			}
+		}
+	}
+	// contains asks that at least one item match its schema; an empty list
+	// has none, so it never meets it.
+	if sub, ok := m["contains"]; ok {
+		found := false
+		for _, x := range list {
+			var inner []string
+			s.validate(sub, x, path, &inner, depth+1)
+			found = found || len(inner) == 0
+		}
+		if !found {
+			fail("no item matches the schema contains asks for")
 		}
 	}
 	prefix, _ := m["prefixItems"].([]any)

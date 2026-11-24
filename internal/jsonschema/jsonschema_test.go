@@ -128,3 +128,31 @@ func TestCompileErrors(t *testing.T) {
 		t.Errorf("the schema false allowed a value")
 	}
 }
+
+// contains asks that at least one item of a list match a schema. A schema
+// that uses it compiles, so what it asks has to be checked.
+func TestContains(t *testing.T) {
+	s := mustCompile(t, `{
+		"type": "object",
+		"properties": {
+			"steps": {"type": "array", "contains": {"type": "object", "properties": {"kind": {"const": "done"}}, "required": ["kind"]}},
+			"codes": {"type": "array", "contains": {"type": "integer", "minimum": 400}}
+		},
+		"required": ["steps"]
+	}`)
+	for value, want := range map[string]string{
+		`{"steps": [{"kind": "start"}, {"kind": "done"}]}`:   "",
+		`{"steps": [{"kind": "done"}], "codes": [200, 404]}`: "",
+		`{"steps": [{"kind": "start"}, {"kind": "stop"}]}`:   "$.steps: no item matches the schema contains asks for",
+		`{"steps": []}`: "$.steps: no item matches the schema contains asks for",
+		`{"steps": [{"kind": "done"}], "codes": [200, 301]}`: "$.codes: no item matches the schema contains asks for",
+	} {
+		err := check(t, s, value)
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s: %v", value, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: got %v, want %q", value, err, want)
+		}
+	}
+}
