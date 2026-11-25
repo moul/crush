@@ -109,17 +109,29 @@ func closingBracket(line string) int {
 	return -1
 }
 
-// gitValue reads a value as git does: outer spaces dropped, a comment
-// outside quotes cut off, quotes removed, and the common escapes undone.
+// gitValue reads a value as git does (config.c, parse_value): the blanks
+// outside quotes at the ends of a value are dropped and each blank inside
+// it becomes one space, the blanks inside quotes are kept as they are, a
+// comment outside quotes is cut off, the quotes themselves go, and the
+// common escapes are undone.
 func gitValue(raw string) string {
 	var b strings.Builder
 	quoted := false
-	raw = strings.TrimSpace(raw)
+	// end is how long the value was before the run of blanks it ends
+	// with, which goes with the line, and -1 while it ends in none.
+	end := -1
+	cut := func() string {
+		if end >= 0 {
+			return b.String()[:end]
+		}
+		return b.String()
+	}
 	for i := 0; i < len(raw); i++ {
 		c := raw[i]
 		switch {
 		case c == '\\' && i+1 < len(raw):
 			i++
+			end = -1
 			switch raw[i] {
 			case 'n':
 				b.WriteByte('\n')
@@ -129,14 +141,25 @@ func gitValue(raw string) string {
 				b.WriteByte(raw[i])
 			}
 		case c == '"':
-			quoted = !quoted
-		case (c == '#' || c == ';') && !quoted:
-			return strings.TrimSpace(b.String())
+			quoted, end = !quoted, -1
+		case quoted:
+			end = -1
+			b.WriteByte(c)
+		case c == ' ' || c == '\t' || c == '\v' || c == '\f' || c == '\r':
+			if end < 0 {
+				end = b.Len()
+			}
+			if b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+		case c == '#' || c == ';':
+			return cut()
 		default:
+			end = -1
 			b.WriteByte(c)
 		}
 	}
-	return strings.TrimSpace(b.String())
+	return cut()
 }
 
 // gitTruth reports whether a value is one of git's words for true or
