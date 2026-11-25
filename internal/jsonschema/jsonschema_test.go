@@ -128,3 +128,31 @@ func TestCompileErrors(t *testing.T) {
 		t.Errorf("the schema false allowed a value")
 	}
 }
+
+// contains asks for at least one item that matches, which is what
+// refusing minContains and maxContains takes for granted.
+func TestContains(t *testing.T) {
+	t.Parallel()
+	s := mustCompile(t, `{
+		"type": "object",
+		"properties": {
+			"lines": {"type": "array", "contains": {"type": "string", "pattern": "^ok:"}},
+			"any": {"type": "array", "contains": true}
+		}
+	}`)
+	for value, want := range map[string]string{
+		`{"lines": ["ok: one"]}`:            "",
+		`{"lines": ["no", "ok: one"]}`:      "",
+		`{"lines": []}`:                     "$.lines: no item matches the schema contains asks for",
+		`{"lines": ["no", "nope"]}`:         "$.lines: no item matches the schema contains asks for",
+		`{"lines": ["ok: one"], "any": []}`: "$.any: no item matches the schema contains asks for",
+	} {
+		err := check(t, s, value)
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s: %v", value, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: got %v, want %q", value, err, want)
+		}
+	}
+}
