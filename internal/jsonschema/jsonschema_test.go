@@ -128,3 +128,27 @@ func TestCompileErrors(t *testing.T) {
 		t.Errorf("the schema false allowed a value")
 	}
 }
+
+// contains asks for one item of the list that matches it.
+func TestContains(t *testing.T) {
+	t.Parallel()
+	s := mustCompile(t, `{
+		"type": "array",
+		"contains": {"type": "object", "required": ["kind"], "properties": {"kind": {"const": "error"}}}
+	}`)
+	for value, want := range map[string]string{
+		`[{"kind": "error"}]`:                   "",
+		`[{"kind": "note"}, {"kind": "error"}]`: "",
+		`[]`:                                    "contains",
+		`[{"kind": "note"}]`:                    "contains",
+		`[1, "x", null, true]`:                  "contains",
+	} {
+		err := check(t, s, value)
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s: %v", value, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: got %v, want %q", value, err, want)
+		}
+	}
+}

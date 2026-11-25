@@ -6,7 +6,7 @@
 // and const; minimum, maximum, exclusiveMinimum, exclusiveMaximum and
 // multipleOf; minLength, maxLength and pattern (Go's regular expressions);
 // items (a schema, or a list as draft-07 writes a tuple), prefixItems,
-// minItems, maxItems and uniqueItems; properties, required,
+// contains, minItems, maxItems and uniqueItems; properties, required,
 // additionalProperties, patternProperties, propertyNames, minProperties
 // and maxProperties; allOf, anyOf, oneOf and not; and $ref to a place in
 // the same schema ("#", "#/$defs/name", "#/definitions/name"). format is
@@ -343,6 +343,19 @@ func matching(s *Schema, subs []any, v any, depth int) int {
 	return n
 }
 
+// holdsOne reports whether one item of list conforms to the schema sub,
+// which is what contains asks for.
+func holdsOne(s *Schema, sub any, list []any, depth int) bool {
+	for _, x := range list {
+		var inner []string
+		s.validate(sub, x, "$", &inner, depth+1)
+		if len(inner) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Schema) validateArray(m map[string]any, list []any, path string, errs *[]string, depth int) {
 	fail := func(format string, args ...any) {
 		*errs = append(*errs, path+": "+fmt.Sprintf(format, args...))
@@ -361,6 +374,9 @@ func (s *Schema) validateArray(m map[string]any, list []any, path string, errs *
 				}
 			}
 		}
+	}
+	if sub, ok := m["contains"]; ok && !holdsOne(s, sub, list, depth) {
+		fail("no item of it matches the schema contains asks for")
 	}
 	prefix, _ := m["prefixItems"].([]any)
 	if tuple, ok := m["items"].([]any); ok {
