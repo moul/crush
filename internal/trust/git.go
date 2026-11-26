@@ -36,9 +36,12 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 	for i := 0; i < len(lines); i++ {
 		num := i + 1
 		line := strings.TrimRight(lines[i], "\r")
-		for strings.HasSuffix(line, "\\") && i+1 < len(lines) {
+		quoted, joins := scanLine(line, false)
+		for joins && i+1 < len(lines) {
 			i++
-			line = line[:len(line)-1] + strings.TrimRight(lines[i], "\r")
+			next := strings.TrimRight(lines[i], "\r")
+			line = line[:len(line)-1] + next
+			quoted, joins = scanLine(next, quoted)
 		}
 		line = strings.TrimSpace(line)
 		if line == "" || line[0] == '#' || line[0] == ';' {
@@ -90,6 +93,29 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 		settings = append(settings, gitSetting{section: section, sub: sub, key: key, value: gitValue(value), line: num})
 	}
 	return settings, true
+}
+
+// scanLine reads one line of a settings file that begins inside quotes when
+// quoted is set. It returns whether the line ends inside quotes, and whether
+// it is joined to the one after it: git joins lines on a backslash at the
+// end of a line, but a backslash that is escaped stands for itself, and one
+// in a comment is part of the comment. A line joined where git would not
+// swallows the setting written on the next one.
+func scanLine(line string, quoted bool) (endsQuoted, joins bool) {
+	for i := 0; i < len(line); i++ {
+		switch c := line[i]; {
+		case c == '\\':
+			if i+1 == len(line) {
+				return quoted, true
+			}
+			i++
+		case c == '"':
+			quoted = !quoted
+		case (c == '#' || c == ';') && !quoted:
+			return quoted, false
+		}
+	}
+	return quoted, false
 }
 
 // closingBracket finds the ] that ends a section header, passing over one

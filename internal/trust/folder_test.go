@@ -425,3 +425,36 @@ func TestGitConfigThatIsAPipe(t *testing.T) {
 		t.Fatal("reading the repository's git settings waited on the pipe")
 	}
 }
+
+// A backslash at the end of a line joins it to the next one only where git
+// joins them: in a value, and not when the backslash stands in a comment or
+// is itself escaped. A line joined where git would not swallows the setting
+// written on the next one, and a repository handed over with its .git folder
+// could hide a program from the trust question that way.
+func TestParseGitConfigLineJoins(t *testing.T) {
+	for _, c := range []struct{ name, text string }{
+		{"a comment ending in a backslash", "[core]\n# the usual settings \\\n\tpager = ./evil.sh\n"},
+		{"a comment written with a semicolon", "[core]\n; the usual settings \\\n\tpager = ./evil.sh\n"},
+		{"a comment after a value", "[core]\n\tbare = false # why \\\n\tpager = ./evil.sh\n"},
+		{"a value ending in an escaped backslash", "[core]\n\tworktree = a\\\\\n\tpager = ./evil.sh\n"},
+	} {
+		settings, ok := parseGitConfig(c.text)
+		if !ok {
+			t.Errorf("%s: the settings file must be read", c.name)
+			continue
+		}
+		found := false
+		for _, s := range settings {
+			if s.name() == "core.pager" && s.value == "./evil.sh" {
+				found = true
+			}
+		}
+		if !found {
+			var got []string
+			for _, s := range settings {
+				got = append(got, s.name()+"="+s.value)
+			}
+			t.Errorf("%s: git reads core.pager=./evil.sh from %q, and the settings read are %q", c.name, c.text, got)
+		}
+	}
+}
