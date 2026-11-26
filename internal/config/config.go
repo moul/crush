@@ -269,9 +269,10 @@ type Endpoint struct {
 	// Display is URL without any user name, password or query string.
 	Display string
 	// Local reports that the address is on the user's own machine or
-	// network: localhost, a loopback, private or link-local address, the
-	// 100.64.0.0/10 range overlay networks use, a host name of one label,
-	// or a name under .localhost, .local, .lan, .internal or .home.arpa.
+	// network: localhost, a loopback, unspecified, private or link-local
+	// address, the 100.64.0.0/10 range overlay networks use, a host name
+	// of one label, or a name under .localhost, .local, .lan, .internal
+	// or .home.arpa.
 	Local bool
 	// Timeouts are the time limits of a request to this address.
 	Timeouts Timeouts

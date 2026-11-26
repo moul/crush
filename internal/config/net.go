@@ -16,10 +16,14 @@ var localSuffixes = []string{".localhost", ".local", ".lan", ".internal", ".home
 var overlayNet = netip.MustParsePrefix("100.64.0.0/10")
 
 // IsLocal reports whether a host is on the user's own machine or network:
-// localhost, a loopback, private or link-local address, an address in
-// 100.64.0.0/10, a host name of one label, or a name under .localhost,
-// .local, .lan, .internal or .home.arpa. A model server there is given as
-// long as it takes to start answering.
+// localhost, a loopback, unspecified, private or link-local address, an
+// address in 100.64.0.0/10, a host name of one label, or a name under
+// .localhost, .local, .lan, .internal or .home.arpa. The unspecified
+// addresses 0.0.0.0 and :: belong there because a server that binds every
+// interface prints one of them as its address (llama.cpp's server: "main:
+// server is listening on http://0.0.0.0:8080"), and reaching it there
+// reaches this machine. A model server there is given as long as it takes
+// to start answering.
 func IsLocal(host string) bool {
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	if host == "" {
@@ -30,7 +34,7 @@ func IsLocal(host string) bool {
 	}
 	if addr, err := netip.ParseAddr(host); err == nil {
 		addr = addr.Unmap()
-		return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast() || overlayNet.Contains(addr)
+		return addr.IsLoopback() || addr.IsUnspecified() || addr.IsPrivate() || addr.IsLinkLocalUnicast() || overlayNet.Contains(addr)
 	}
 	if host == "localhost" || !strings.Contains(host, ".") {
 		return true

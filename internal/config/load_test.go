@@ -675,6 +675,7 @@ func TestAPIRootAndLocal(t *testing.T) {
 		"localhost": true, "LOCALHOST": true, "127.0.0.1": true, "::1": true, "10.1.2.3": true, "172.16.0.9": true, "192.168.1.88": true,
 		"169.254.10.1": true, "fe80::1": true, "100.64.0.1": true, "100.127.255.254": true, "aibox": true, "box.local": true,
 		"box.lan": true, "svc.internal": true, "x.home.arpa": true, "app.localhost": true, "fd00::1": true, "box.local.": true,
+		"0.0.0.0": true, "::": true,
 		"example.com": false, "192.0.2.91": false, "203.0.113.10": false, "100.128.0.1": false, "8.8.8.8": false,
 		"api.anthropic.com": false, "local.example.com": false, "2001:db8::1": false, "": false,
 	}
@@ -726,6 +727,16 @@ func TestTimeouts(t *testing.T) {
 	here, there = limits(`, "options": {"requestTimeout": 900}`, "API_TIMEOUT_MS=5000")
 	if here.FirstToken != 4500*time.Second || there.FirstToken != 5*time.Second || there.Idle != 900*time.Second {
 		t.Errorf("both set: local %+v, elsewhere %+v", here, there)
+	}
+
+	// A server that binds every interface is reached at the address it
+	// prints ("main: server is listening on http://0.0.0.0:8080"), which
+	// is this machine: it gets a local server's limits.
+	for _, raw := range []string{"http://0.0.0.0:8080", "http://[::]:8080"} {
+		e := mustLoad(t, withConfig(`{"providers": {"any": {"type": "llamacpp", "baseUrl": "`+raw+`"}}}`)).Providers[0].Endpoints[0]
+		if !e.Local || e.Timeouts.FirstToken != 0 || e.Timeouts.Idle != 900*time.Second {
+			t.Errorf("a server at %s: Local %v, %+v", raw, e.Local, e.Timeouts)
+		}
 	}
 }
 
