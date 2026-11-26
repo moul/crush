@@ -128,3 +128,29 @@ func TestCompileErrors(t *testing.T) {
 		t.Errorf("the schema false allowed a value")
 	}
 }
+
+// The contains keyword asks that at least one item of an array match a
+// schema, so a list where no item does is refused.
+func TestContains(t *testing.T) {
+	s := mustCompile(t, `{
+		"type": "object",
+		"properties": {
+			"files": {"type": "array", "contains": {"type": "string", "pattern": "\\.go$"}}
+		}
+	}`)
+	for value, want := range map[string]string{
+		`{"files": ["a.go"]}`:              "",
+		`{"files": ["README.md", "a.go"]}`: "",
+		`{"files": ["README.md"]}`:         "no item matches",
+		`{"files": []}`:                    "no item matches",
+		`{"files": ["a.go", "README.md"]}`: "",
+	} {
+		err := check(t, s, value)
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s: %v", value, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: got %v, want %q", value, err, want)
+		}
+	}
+}
