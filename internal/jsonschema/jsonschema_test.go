@@ -128,3 +128,28 @@ func TestCompileErrors(t *testing.T) {
 		t.Errorf("the schema false allowed a value")
 	}
 }
+
+// contains asks for at least one item that matches it, so a list where
+// none does, an empty list among them, does not conform.
+func TestContains(t *testing.T) {
+	s := mustCompile(t, `{
+		"type": "array",
+		"items": {"type": "object"},
+		"contains": {"required": ["status"], "properties": {"status": {"const": "done"}}}
+	}`)
+	for value, want := range map[string]string{
+		`[{"status": "done"}]`:                     "",
+		`[{"status": "open"}, {"status": "done"}]`: "",
+		`[]`:                   "no item matches the schema contains asks for",
+		`[{"status": "open"}]`: "no item matches the schema contains asks for",
+		`[{"name": "x"}]`:      "no item matches the schema contains asks for",
+	} {
+		err := check(t, s, value)
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s: %v", value, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: got %v, want %q", value, err, want)
+		}
+	}
+}
