@@ -128,3 +128,28 @@ func TestCompileErrors(t *testing.T) {
 		t.Errorf("the schema false allowed a value")
 	}
 }
+
+// A subschema that only a $ref leads to is read like any other: its
+// pattern is compiled, so that it is enforced, and a keyword gnosh does
+// not check makes the schema refused. A schema copied out of an OpenAPI
+// document keeps its subschemas under "components", which no keyword of
+// JSON Schema's own walks.
+func TestRefLeadsOutsideDefs(t *testing.T) {
+	s := mustCompile(t, `{
+		"type": "object",
+		"properties": {"id": {"$ref": "#/components/schemas/Id"}},
+		"components": {"schemas": {"Id": {"type": "string", "pattern": "^[a-z]+-[0-9]+$"}}}
+	}`)
+	if err := check(t, s, `{"id": "ab-12"}`); err != nil {
+		t.Errorf(`{"id": "ab-12"}: %v`, err)
+	}
+	if err := check(t, s, `{"id": "AB-12"}`); err == nil || !strings.Contains(err.Error(), "does not match the pattern") {
+		t.Errorf(`{"id": "AB-12"}: got %v, want an error with "does not match the pattern"`, err)
+	}
+	const withIf = `{"$ref": "#/components/x", "components": {"x": {"if": {"const": 1}, "then": {"const": 2}}}}`
+	if _, err := Compile(withIf); err == nil || !strings.Contains(err.Error(), "a keyword gnosh does not check") {
+		t.Errorf("Compile(%s) = %v, want an error with %q", withIf, err, "a keyword gnosh does not check")
+	}
+	// A $ref that leads back to where it stands is read once, not for ever.
+	mustCompile(t, `{"$ref": "#/$defs/node", "$defs": {"node": {"type": "object", "properties": {"next": {"$ref": "#/$defs/node"}}}}}`)
+}

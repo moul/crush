@@ -37,6 +37,10 @@ import (
 type Schema struct {
 	root     any
 	patterns map[string]*regexp.Regexp
+	// refs are the $ref that were followed while the schema was checked,
+	// so that each place is checked once and a $ref that leads back to
+	// itself does not go round for ever.
+	refs map[string]bool
 }
 
 // Compile reads a schema and checks that it can be used: valid JSON, an
@@ -47,7 +51,7 @@ func Compile(text string) (*Schema, error) {
 	if err != nil {
 		return nil, fmt.Errorf("it is not JSON: %v", err)
 	}
-	s := &Schema{root: root, patterns: map[string]*regexp.Regexp{}}
+	s := &Schema{root: root, patterns: map[string]*regexp.Regexp{}, refs: map[string]bool{}}
 	if err := s.check(root, "#"); err != nil {
 		return nil, err
 	}
@@ -182,8 +186,19 @@ func (s *Schema) check(node any, at string) error {
 			if !ok {
 				return bad(key, "a string")
 			}
-			if _, err := s.resolve(ref); err != nil {
+			target, err := s.resolve(ref)
+			if err != nil {
 				return fmt.Errorf("%s/$ref: %v", at, err)
+			}
+			// The subschema a $ref leads to is checked where it stands.
+			// That may be under a keyword nothing else walks: $defs and
+			// definitions are walked above, but a schema copied out of an
+			// OpenAPI document keeps its subschemas under components.
+			if !s.refs[ref] {
+				s.refs[ref] = true
+				if err := s.check(target, ref); err != nil {
+					return err
+				}
 			}
 		}
 	}
