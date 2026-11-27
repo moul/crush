@@ -269,3 +269,23 @@ func TestMonitorWholeLinesNoGaps(t *testing.T) {
 		}
 	}
 }
+
+// The last piece of output a command's sink hands over ends wherever the
+// command stopped writing, so it can hold whole lines and then the start of
+// a line that never ended. The lines keep the order the command printed
+// them in.
+func TestMonitorKeepsTheOrderOfLines(t *testing.T) {
+	t.Parallel()
+	w := &watcher{}
+	tail := strings.Repeat("z", monitorLineBytes+500)
+	w.take(core.Progress{Stream: "stdout", Text: "first\nsecond\n" + tail})
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	got := make([]string, len(w.lines))
+	for i, l := range w.lines {
+		got[i] = firstLine(l, 12)
+	}
+	if !slices.Equal(got, []string{"first", "second", strings.Repeat("z", 11) + "…"}) {
+		t.Errorf("the lines came out as %q, want first, then second, then the start of the long line", got)
+	}
+}

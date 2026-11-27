@@ -234,16 +234,17 @@ func (w *watcher) take(p core.Progress) {
 	text := w.part + p.Text
 	end := strings.LastIndexByte(text, '\n')
 	w.part = text[end+1:]
+	if end >= 0 {
+		// The whole lines first: the piece they came in may end in the
+		// middle of the line that follows them.
+		for _, line := range strings.Split(text[:end], "\n") {
+			w.keep(line)
+		}
+	}
 	if len(w.part) > monitorLineBytes {
 		// A line that never ends is passed on as far as it has come.
 		w.keep(w.part)
 		w.part = ""
-	}
-	if end < 0 {
-		return
-	}
-	for _, line := range strings.Split(text[:end], "\n") {
-		w.keep(line)
 	}
 }
 
