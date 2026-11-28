@@ -50,7 +50,11 @@ func parseGitConfig(text string) (settings []gitSetting, ok bool) {
 				return nil, false
 			}
 			head := strings.TrimSpace(line[1:end])
-			name, rest, quoted := strings.Cut(head, " ")
+			name, rest := head, ""
+			quoted := false
+			if i := strings.IndexAny(head, " \t"); i >= 0 {
+				name, rest, quoted = head[:i], head[i+1:], true
+			}
 			if !quoted {
 				// The older spelling: [section.subsection].
 				name, rest, _ = strings.Cut(head, ".")
